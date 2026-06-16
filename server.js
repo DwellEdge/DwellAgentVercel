@@ -59,18 +59,14 @@ mongoose
 const customerSchema = new mongoose.Schema({
   Id: Number,
 
-  firstName: String,
-  lastName: String,
-  city: String,
-  area: String,
-  address: String,
+  name: String,
 
   mobileNumber: String,
 
   createdDateAndTime: {
     type: Date,
-    default: Date.now,
-  },
+    default: Date.now
+  }
 });
 
 // Define Agent Schema
@@ -535,6 +531,46 @@ app.post("/api/send-message", async (req, res) => {
   }
 });
 
+app.post("/api/send-message", async (req, res) => {
+
+  try {
+
+    const { name, phone } = req.body;
+
+    const lastCustomer = await Customer
+      .findOne()
+      .sort({ Id: -1 });
+
+    const nextId = lastCustomer
+      ? lastCustomer.Id + 1
+      : 1001;
+
+    const customer = new Customer({
+      Id: nextId,
+      Name: name,
+      mobileNumber: phone,
+      createdDateAndTime: new Date(),
+    });
+
+    await customer.save();
+
+    // SMS / WhatsApp code here later
+
+    res.json({
+      success: true,
+      customer,
+    });
+
+  } catch (error) {
+
+    console.error(error);
+
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
 
 
 app.listen(PORT, () => {
