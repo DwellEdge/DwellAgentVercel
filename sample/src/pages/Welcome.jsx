@@ -10,11 +10,6 @@ function Welcome() {
         className="flex items-center justify-between px-8 py-4 shadow-sm">
         <div style={{ color: '#c2511f' }} className="text-xl font-extrabold tracking-wide">DWELLAGENT</div>
         <div className="flex items-center gap-3">
-          <button onClick={() => navigate('/signup-choice')}
-            style={{ borderColor: '#e8724a', color: '#c2511f' }}
-            className="border-2 px-5 py-2 rounded-xl text-sm font-bold hover:bg-orange-50 transition">
-            Sign Up / Login
-          </button>
           <button onClick={() => navigate('/agent')}
             style={{ background: 'linear-gradient(135deg, #e8724a, #f59e6c)' }}
             className="px-5 py-2 rounded-xl text-sm font-bold text-white shadow-md hover:opacity-90 transition">
@@ -36,7 +31,7 @@ function Welcome() {
             Discover thousands of properties across India. Connect with trusted agents and find your dream home today.
           </p>
           <div className="flex gap-3 mt-2">
-            <button onClick={() => navigate('/signup-choice')}
+            <button onClick={() => navigate('/home')}
               style={{ background: 'linear-gradient(135deg, #e8724a, #f59e6c)' }}
               className="px-8 py-3 rounded-xl text-white font-bold shadow-lg hover:opacity-90 transition text-sm">
               Get Started →

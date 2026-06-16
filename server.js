@@ -1,13 +1,27 @@
+console.log("=================================");
+console.log("THIS IS MY CURRENT SERVER FILE");
+console.log(__filename);
+console.log("=================================");
+
 const express = require("express");
 const axios = require("axios");
 const mongoose = require("mongoose");
 const cors = require("cors");
 require("dotenv").config();
+console.log("MONGO URL:", process.env.MONGO_URL);
+const twilio= require("twilio");
 
 const app = express();
 
+const PORT = process.env.PORT || 5002;
+
 app.use(cors());
 app.use(express.json());
+
+app.get("/api/test-payment", (req, res) => {
+  console.log("TEST PAYMENT HIT");
+  res.send("PAYMENT ROUTE EXISTS");
+});
 
 app.get("/vijaytest", (req, res) => {
   res.send("VIJAY TEST ROUTE");
@@ -20,25 +34,43 @@ app.get("/", (req, res) => {
 console.log("========== MY SERVER FILE LOADED ==========");
 console.log(__filename);
 
+
+const JWT_SECRET = process.env.JWT_SECRET || "secret123";
+
+/* ================= CHECK ENV ================= */
+if (!process.env.ATLAS_URI) {
+  console.error("❌ ATLAS_URI missing in .env file");
+  process.exit(1);
+}
+
+
 // MongoDB Connection
 mongoose
-  .connect(process.env.MONGO_URL)
+  .connect(process.env.ATLAS_URI)
   .then(() => {
-    console.log("✓ MongoDB Connected Successfully");
-    console.log("Database:", mongoose.connection.db.databaseName);
+    console.log("✅ MongoDB Connected");
   })
   .catch((err) => {
-    console.error("MongoDB Connection Error:", err.message);
+    console.log("❌ DB Connection Error:", err.message);
+    process.exit(1);
   });
 
 // Define Customer Schema
 const customerSchema = new mongoose.Schema({
+  Id: Number,
+
   firstName: String,
   lastName: String,
   city: String,
   area: String,
   address: String,
+
   mobileNumber: String,
+
+  createdDateAndTime: {
+    type: Date,
+    default: Date.now,
+  },
 });
 
 // Define Agent Schema
@@ -49,6 +81,7 @@ const agentSchema = new mongoose.Schema({
   area: String,
   address: String,
   mobileNumber: String,
+  propertyCount: Number,
 });
 
 const Customer = mongoose.model("Customer", customerSchema, "Customers");
@@ -307,7 +340,25 @@ app.get("/test123", (req, res) => {
 // Add Agent
 app.post("/api/agents", async (req, res) => {
   try {
-    const agent = new Agent(req.body);
+    const {
+      firstName,
+      lastName,
+      city,
+      area,
+      address,
+      mobileNumber,
+      propertyCount,
+    } = req.body;
+
+    const agent = new Agent({
+      firstName,
+      lastName,
+      city,
+      area,
+      address,
+      mobileNumber,
+      propertyCount,
+    });
 
     await agent.save();
 
@@ -355,7 +406,136 @@ console.log("/api/areas");
 console.log("/api/customers");
 console.log("Routes registered successfully");
 
-const PORT = process.env.PORT || 5002;
+
+app.get("/api/agents", async (req, res) => {
+  try {
+    const city = req.query.city?.trim();
+    const area = req.query.area?.trim();
+
+    const query = {};
+
+    if (city) {
+      query.city = {
+        $regex: `^${city}$`,
+        $options: "i",
+      };
+    }
+
+    if (area) {
+      query.area = {
+        $regex: `^${area}$`,
+        $options: "i",
+      };
+    }
+
+    const agents = await Agent.find(query).lean();
+
+    res.json(agents);
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      message: error.message,
+    });
+  }
+});
+
+
+console.log("PAYMENT ROUTE REGISTERED");
+console.log("BEFORE PAYMENT ROUTE");
+
+app.post("/api/payment-request", async (req, res) => {
+  console.log("PAYMENT REQUEST RECEIVED");
+  console.log("REQ BODY:", req.body);
+
+  try {
+    const { mobileNumber, firstName } = req.body;
+
+    const lastCustomer = await Customer
+      .findOne()
+      .sort({ Id: -1 });
+
+    const nextId = lastCustomer
+      ? lastCustomer.Id + 1
+      : 1001;
+
+    const customer = new Customer({
+      Id: nextId,
+      firstName,
+      mobileNumber,
+      createdDateAndTime: new Date(),
+    });
+
+    await customer.save();
+
+    res.status(201).json({
+      success: true,
+      customer,
+    });
+
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+});
+
+console.log("AFTER PAYMENT ROUTE");
+
+console.log("REGISTERING PAYMENT ROUTE");
+console.log("REGISTERING TEST ROUTE");
+
+
+// twilio 
+
+
+const client = twilio(
+  process.env.TWILIO_ACCOUNT_SID,
+  process.env.TWILIO_AUTH_TOKEN
+);
+
+app.post("/api/send-message", async (req, res) => {
+  const { phone, name, agents } = req.body;
+
+  if (!phone || phone.length !== 10 || isNaN(phone)) {
+    return res.status(400).json({ success: false, error: "Invalid phone number" });
+  }
+
+  // Build agent details text
+  const agentDetails = agents && agents.length > 0
+    ? agents.map((agent, i) =>
+        `Agent ${i + 1}:\nName: ${agent.firstName} ${agent.lastName}\nCity: ${agent.city}\nArea: ${agent.area}\nAddress: ${agent.address}\nMobile: ${agent.mobileNumber}`
+      ).join("\n\n")
+    : "No agents selected";
+
+  const message = `Hi ${name}! 👋\n\nThank you for using DwellAgent! 🏠\n\nYour selected agents:\n\n${agentDetails}\n\nOur team will reach out to you shortly.`;
+
+  try {
+    // Send SMS
+    await client.messages.create({
+      body: message,
+      from: process.env.TWILIO_PHONE,
+      to: `+91${phone}`,
+    });
+
+    // Send WhatsApp
+    await client.messages.create({
+      body: message,
+      from: "whatsapp:+14155238886",
+      to: `whatsapp:+91${phone}`,
+    });
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Twilio error:", err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+
 
 app.listen(PORT, () => {
   console.log(`Server Running on port ${PORT}`);
