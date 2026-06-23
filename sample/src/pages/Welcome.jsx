@@ -8,7 +8,13 @@ function Welcome() {
 
       <nav style={{ background: 'rgba(255,255,255,0.8)', borderBottom: '1px solid #fdd9c8', backdropFilter: 'blur(10px)' }}
         className="flex items-center justify-between px-8 py-4 shadow-sm">
-        <div style={{ color: '#c2511f' }} className="text-xl font-extrabold tracking-wide">DWELLAGENT</div>
+        <div
+          style={{ color: "#c2511f" }}
+          className="text-xl font-extrabold tracking-wide cursor-pointer"
+          onClick={() => navigate("/")}
+        >
+          DWELLAGENT
+        </div>
         <div className="flex items-center gap-3">
           <button onClick={() => navigate('/agent')}
             style={{ background: 'linear-gradient(135deg, #e8724a, #f59e6c)' }}
