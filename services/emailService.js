@@ -36,7 +36,7 @@ transporter.verify((error, success) => {
 });
 
 const sendWelcomeEmail = async (agent) => {
-    const siteUrl = process.env.APP_URL || "http://localhost:5173";
+    const siteUrl = process.env.APP_URL || "https://dwellagentvercel.onrender.com";
     const unsubscribeHeader = EMAIL_LIST_UNSUBSCRIBE ? ` <${EMAIL_LIST_UNSUBSCRIBE}>` : undefined;
 
     const mailOptions = {

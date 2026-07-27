@@ -19,7 +19,7 @@ export default function Payment() {
   const [showSuccessPopup, setShowSuccessPopup] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
-  const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5002";
+  const API_BASE = import.meta.env.VITE_API_URL || "https://dwellagentvercel.onrender.com";
 
   useEffect(() => {
     if (!location.state || agents.length === 0) {

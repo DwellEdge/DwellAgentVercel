@@ -22,7 +22,7 @@ export default function Home() {
   const [previouslySelectedKeys, setPreviouslySelectedKeys] = useState(new Set());
   const [showConfirmPopup, setShowConfirmPopup] = useState(false);
 
-  const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:5002";
+  const API_BASE = import.meta.env.VITE_API_BASE || "https://dwellagentvercel.onrender.com";
 
   const makeRowKey = (agentId, ptId) => `${agentId}::${ptId}`;
 
