@@ -1,11 +1,10 @@
 const express = require("express");
+const router = express.Router();
 
 const {
   createAgent,
   getAgents,
 } = require("../controllers/agentController");
-
-const router = express.Router();
 
 router.post("/", createAgent);
 

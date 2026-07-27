@@ -67,36 +67,25 @@ const getAreas = async (
   }
 };
 
-const getCustomers = async (
-  req,
-  res
-) => {
+const getCustomers = async (req, res) => {
   try {
-
-    const city =
-      req.query.city?.trim();
-
-    const area =
-      req.query.area?.trim();
+    const city = req.query.city?.trim();
+    const area = req.query.area?.trim();
+    const propertyType = req.query.propertyType?.trim();
 
     if (!city || !area) {
       return res.json([]);
     }
 
-    const result =
-      await getCustomersByArea(
-        city,
-        area
-      );
+    const result = await getCustomersByArea(city, area, propertyType);
 
     res.json(result);
-
   } catch (error) {
+    console.error("GET CUSTOMERS ERROR:", error);
 
     res.status(500).json({
       message: error.message,
     });
-
   }
 };
 
