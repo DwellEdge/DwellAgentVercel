@@ -1,4 +1,4 @@
-const PropertyType = require("../models/PropertyType");
+const PropertyType = require("../models/Propertytype");
 
 const getPropertyTypes = async (req, res) => {
   try {
