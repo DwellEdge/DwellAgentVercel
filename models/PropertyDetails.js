@@ -1,68 +1,59 @@
-const express = require("express");
-const router = express.Router();
-const multer = require("multer");
-const path = require("path");
-const {
-  registerAgent,
-  loginAgent,
-  forgotPassword,
-  verifyOtp,
-  resetPassword,
-} = require("../controllers/agentauthController");
+const mongoose = require("mongoose");
 
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, "uploads/");
+const propertyDetailsSchema = new mongoose.Schema({
+  agentId: { type: String, required: true },
+
+  propertyAvailableFor: {
+    type: String,
+    enum: ["Rent", "Lease", "Sale"],
+    required: true,
   },
-  filename: (req, file, cb) => {
-    const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-    cb(null, `${file.fieldname}-${unique}${path.extname(file.originalname)}`);
+
+  propertyCost: { type: Number, required: true },
+
+  propertyAddress: { type: String, required: true },
+
+  area: { type: String, required: true },
+
+  city: { type: String, required: true },
+
+  pinCode: { type: String, required: true },
+
+  facing: {
+    type: String,
+    enum: ["North", "South", "East", "West", "North-East", "North-West", "South-East", "South-West"],
+  },
+
+  propertyType: {
+    type: String,
+    enum: ["Apartment", "Villa", "Plot", "Independent House", "Commercial", "Other"],
+  },
+
+  carParking: { type: Boolean, default: false },
+
+  twoWheelerParking: { type: Boolean, default: false },
+
+  amenities: {
+    gym: { type: Boolean, default: false },
+    pool: { type: Boolean, default: false },
+    badminton: { type: Boolean, default: false },
+    security: { type: Boolean, default: false },
+    others: { type: String, default: "" },
+  },
+
+  landmark: { type: String, default: "" },
+
+  listedDate: { type: Date, default: Date.now },
+
+  // Properties expire after 90 days
+  expiryDate: {
+    type: Date,
+    default: () => new Date(Date.now() + 90 * 24 * 60 * 60 * 1000),
   },
 });
 
-const fileFilter = (req, file, cb) => {
-  if (file.fieldname === "photo") {
-    // Photo: JPEG and PNG only
-    const allowed = ["image/jpeg", "image/png"];
-    if (allowed.includes(file.mimetype)) {
-      cb(null, true);
-    } else {
-      cb(new Error("Agent photo must be a JPEG or PNG file"), false);
-    }
-  } else if (file.fieldname === "idDocument") {
-    // ID document: JPEG, PNG, PDF only
-    const allowed = ["image/jpeg", "image/png", "application/pdf"];
-    if (allowed.includes(file.mimetype)) {
-      cb(null, true);
-    } else {
-      cb(new Error("ID document must be a JPEG, PNG, or PDF file"), false);
-    }
-  } else {
-    cb(null, false);
-  }
-};
-
-const upload = multer({ storage, fileFilter });
-
-// Custom error handler for multer file type rejections
-const handleUpload = (req, res, next) => {
-  const uploadFields = upload.fields([
-    { name: "photo", maxCount: 1 },
-    { name: "idDocument", maxCount: 1 },
-  ]);
-
-  uploadFields(req, res, (err) => {
-    if (err) {
-      return res.status(400).json({ success: false, message: err.message });
-    }
-    next();
-  });
-};
-
-router.post("/register", handleUpload, registerAgent);
-router.post("/login", loginAgent);
-router.post("/forgot-password", forgotPassword);
-router.post("/verify-otp", verifyOtp);
-router.post("/reset-password", resetPassword);
-
-module.exports = router;
+module.exports = mongoose.model(
+  "PropertyDetails",
+  propertyDetailsSchema,
+  "PropertyDetails"
+);
