@@ -4,8 +4,9 @@ import Welcome from './pages/Welcome'
 import Payment from "./pages/Payment";
 import PhoneForm from './pages/PhoneForm'
 import Agents from './pages/Agents'
+import AgentLogin from './pages/AgentLogin'
 import AgentRegister from './pages/AgentRegister'
-import AgentLogin from "./pages/AgentLogin";
+import AgentDashboard from './pages/AgentDashboard'
 
 function App() {
   return (
@@ -15,8 +16,9 @@ function App() {
       <Route path="/payment" element={<Payment />} />
       <Route path="/phoneform" element={<PhoneForm />} />
       <Route path="/agent" element={<Agents />} />
-      <Route path="/agent-register" element={<AgentRegister />} />
       <Route path="/agent-login" element={<AgentLogin />} />
+      <Route path="/agent-register" element={<AgentRegister />} />
+      <Route path="/agent-dashboard" element={<AgentDashboard />} />
     </Routes>
   )
 }

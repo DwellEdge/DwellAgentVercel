@@ -1,6 +1,10 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
+// Strip SQL injection patterns from text inputs
+const sanitizeInput = (val) =>
+  val.replace(/(['";\\]|--|\b(SELECT|INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|EXEC|UNION)\b)/gi, "");
+
 export default function AgentRegister() {
   const navigate = useNavigate();
   const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:5002";
@@ -14,6 +18,7 @@ export default function AgentRegister() {
     homeAddress: "",
     password: "",
     confirmPassword: "",
+    referral: "",
   });
 
   const [photo, setPhoto] = useState(null);
@@ -23,35 +28,76 @@ export default function AgentRegister() {
   const [showSuccess, setShowSuccess] = useState(false);
 
   const handleChange = (field, value) => {
-    setForm((prev) => ({ ...prev, [field]: value }));
+    const sanitized = ["firstName", "lastName", "officeAddress", "homeAddress"].includes(field)
+      ? sanitizeInput(value)
+      : value;
+    setForm((prev) => ({ ...prev, [field]: sanitized }));
     setStatus("");
   };
 
   const handlePhotoChange = (e) => {
     const file = e.target.files[0];
-    if (file) {
-      setPhoto(file);
-      setPhotoPreview(URL.createObjectURL(file));
+    if (!file) return;
+
+    const allowed = ["image/jpeg", "image/png"];
+    if (!allowed.includes(file.type)) {
+      setStatus("❌ Agent photo must be a JPEG or PNG file");
+      e.target.value = "";
+      return;
     }
+    setPhoto(file);
+    setPhotoPreview(URL.createObjectURL(file));
+    setStatus("");
   };
 
   const handleIdDocChange = (e) => {
     const file = e.target.files[0];
-    if (file) setIdDocument(file);
+    if (!file) return;
+
+    const allowed = ["image/jpeg", "image/png", "application/pdf"];
+    if (!allowed.includes(file.type)) {
+      setStatus("❌ ID document must be a JPEG, PNG, or PDF file");
+      e.target.value = "";
+      return;
+    }
+    setIdDocument(file);
+    setStatus("");
   };
 
   const handleSubmit = async () => {
-    const { firstName, lastName, email, mobileNumber, officeAddress, homeAddress, password, confirmPassword } = form;
+    const {
+      firstName, lastName, email, mobileNumber,
+      officeAddress, homeAddress, password, confirmPassword, referral,
+    } = form;
 
-    if (!firstName.trim() || !lastName.trim()) { setStatus("❌ Please enter agent name"); return; }
-    if (!email.trim()) { setStatus("❌ Please enter email"); return; }
-    if (!mobileNumber.trim() || mobileNumber.length !== 10 || isNaN(mobileNumber)) { setStatus("❌ Enter a valid 10-digit mobile number"); return; }
-    if (!officeAddress.trim()) { setStatus("❌ Please enter office address"); return; }
-    if (!homeAddress.trim()) { setStatus("❌ Please enter home address"); return; }
-    if (!photo) { setStatus("❌ Please upload agent photo"); return; }
-    if (!idDocument) { setStatus("❌ Please upload ID document"); return; }
-    if (!password.trim() || password.length < 6) { setStatus("❌ Password must be at least 6 characters"); return; }
-    if (password !== confirmPassword) { setStatus("❌ Passwords do not match"); return; }
+    // Frontend validations
+    if (!firstName.trim() || !lastName.trim()) {
+      setStatus("❌ Please enter agent name"); return;
+    }
+    if (!email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      setStatus("❌ Please enter a valid email address"); return;
+    }
+    if (!/^\d{10}$/.test(mobileNumber.trim())) {
+      setStatus("❌ Enter a valid 10-digit mobile number"); return;
+    }
+    if (!officeAddress.trim()) {
+      setStatus("❌ Please enter office address"); return;
+    }
+    if (!homeAddress.trim()) {
+      setStatus("❌ Please enter home address"); return;
+    }
+    if (!photo) {
+      setStatus("❌ Please upload agent photo (JPEG or PNG)"); return;
+    }
+    if (!idDocument) {
+      setStatus("❌ Please upload ID document (JPEG, PNG, or PDF)"); return;
+    }
+    if (!password.trim() || password.length < 6) {
+      setStatus("❌ Password must be at least 6 characters"); return;
+    }
+    if (password !== confirmPassword) {
+      setStatus("❌ Passwords do not match"); return;
+    }
 
     setStatus("Registering...");
 
@@ -64,6 +110,7 @@ export default function AgentRegister() {
       formData.append("officeAddress", officeAddress.trim());
       formData.append("homeAddress", homeAddress.trim());
       formData.append("password", password);
+      formData.append("referral", referral.trim());
       formData.append("photo", photo);
       formData.append("idDocument", idDocument);
 
@@ -131,7 +178,7 @@ export default function AgentRegister() {
             {/* Agent Photo */}
             <div className="flex flex-col gap-2">
               <label style={{ color: "#7c2d12" }} className="text-xs font-bold uppercase tracking-wide">
-                Agent Photo *
+                Agent Photo * <span style={{ color: "#a8674a", fontWeight: "normal", textTransform: "none" }}>(JPEG or PNG only)</span>
               </label>
               <div className="flex items-center gap-4">
                 {photoPreview ? (
@@ -154,11 +201,14 @@ export default function AgentRegister() {
                   className="px-4 py-2 rounded-xl text-sm font-bold cursor-pointer hover:opacity-90 transition"
                 >
                   Upload Photo
-                  <input type="file" accept="image/*" onChange={handlePhotoChange} className="hidden" />
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png"
+                    onChange={handlePhotoChange}
+                    className="hidden"
+                  />
                 </label>
-                {photo && (
-                  <span style={{ color: "#a8674a" }} className="text-xs">{photo.name}</span>
-                )}
+                {photo && <span style={{ color: "#a8674a" }} className="text-xs">{photo.name}</span>}
               </div>
             </div>
 
@@ -207,21 +257,29 @@ export default function AgentRegister() {
               />
             </div>
 
-            {/* Mobile */}
+            {/* Phone with +91 prefix */}
             <div className="flex flex-col gap-1">
               <label style={{ color: "#7c2d12" }} className="text-xs font-bold uppercase tracking-wide">
                 Phone Number *
               </label>
-              <input
-                type="tel"
-                value={form.mobileNumber}
-                onChange={(e) => handleChange("mobileNumber", e.target.value.replace(/\D/g, ""))}
-                placeholder="10-digit mobile number"
-                maxLength={10}
-                inputMode="numeric"
-                style={{ borderColor: "#fdd9c8", color: "#7c2d12" }}
-                className="border-2 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-orange-300 bg-orange-50 placeholder-orange-300"
-              />
+              <div className="flex gap-2">
+                <div
+                  style={{ borderColor: "#fdd9c8", color: "#7c2d12", background: "#fff0e8" }}
+                  className="border-2 rounded-xl px-4 py-3 text-sm font-bold flex items-center select-none"
+                >
+                  +91
+                </div>
+                <input
+                  type="tel"
+                  value={form.mobileNumber}
+                  onChange={(e) => handleChange("mobileNumber", e.target.value.replace(/\D/g, ""))}
+                  placeholder="10-digit mobile number"
+                  maxLength={10}
+                  inputMode="numeric"
+                  style={{ borderColor: "#fdd9c8", color: "#7c2d12" }}
+                  className="flex-1 border-2 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-orange-300 bg-orange-50 placeholder-orange-300"
+                />
+              </div>
             </div>
 
             {/* Office Address */}
@@ -257,7 +315,7 @@ export default function AgentRegister() {
             {/* ID Document */}
             <div className="flex flex-col gap-2">
               <label style={{ color: "#7c2d12" }} className="text-xs font-bold uppercase tracking-wide">
-                Agent ID Document *
+                Agent ID Document * <span style={{ color: "#a8674a", fontWeight: "normal", textTransform: "none" }}>(JPEG, PNG, or PDF only)</span>
               </label>
               <div
                 style={{ background: "#fff8f5", border: "2px dashed #fdd9c8" }}
@@ -277,9 +335,29 @@ export default function AgentRegister() {
                   className="px-4 py-2 rounded-xl text-sm font-bold cursor-pointer hover:opacity-90 transition whitespace-nowrap"
                 >
                   Choose File
-                  <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={handleIdDocChange} className="hidden" />
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,application/pdf"
+                    onChange={handleIdDocChange}
+                    className="hidden"
+                  />
                 </label>
               </div>
+            </div>
+
+            {/* Referral */}
+            <div className="flex flex-col gap-1">
+              <label style={{ color: "#7c2d12" }} className="text-xs font-bold uppercase tracking-wide">
+                Referral <span style={{ color: "#a8674a", fontWeight: "normal", textTransform: "none" }}>(optional — enter referral ID or agent name)</span>
+              </label>
+              <input
+                type="text"
+                value={form.referral}
+                onChange={(e) => handleChange("referral", e.target.value)}
+                placeholder="e.g. AgentA01 or Agent Name"
+                style={{ borderColor: "#fdd9c8", color: "#7c2d12" }}
+                className="border-2 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-orange-300 bg-orange-50 placeholder-orange-300"
+              />
             </div>
 
             {/* Password */}
@@ -365,8 +443,11 @@ export default function AgentRegister() {
               ✅
             </div>
             <h2 style={{ color: "#7c2d12" }} className="text-2xl font-extrabold mb-3">Registered!</h2>
-            <p style={{ color: "#a8674a" }} className="text-sm mb-6 leading-relaxed">
-              Your registration was successful. You can now login to your agent account.
+            <p style={{ color: "#a8674a" }} className="text-sm mb-2 leading-relaxed">
+              Your registration was successful. Your login details have been sent to your registered mobile number via SMS.
+            </p>
+            <p style={{ color: "#c2511f" }} className="text-xs mb-6 font-semibold">
+              Please check your SMS for your Login ID.
             </p>
             <div style={{ background: "#fdd9c8" }} className="w-full h-px mb-6" />
             <button
