@@ -1,4 +1,5 @@
 import { useNavigate } from 'react-router-dom'
+import Footer from '../components/Footer'
 
 function Welcome() {
   const navigate = useNavigate()
@@ -60,7 +61,7 @@ function Welcome() {
         </div>
       </div>
 
-      <p style={{ color: '#d4a090' }} className="text-sm text-center pb-6">© 2026 DwellAgent</p>
+      <Footer />
     </div>
   )
 }
