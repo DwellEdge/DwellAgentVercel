@@ -3,7 +3,7 @@ const axios = require("axios");
 const PropertyDetails = require("../models/PropertyDetails");
 const Agent = require("../models/Agent");
 const Customer = require("../models/Customer");
-const PropertyType = require("../models/PropertyType");
+const PropertyType = require("../models/Propertytype");
 
 const GEOAPIFY_API_KEY = process.env.GEOAPIFY_API_KEY;
 const GEOAPIFY_AUTOCOMPLETE_URL = "https://api.geoapify.com/v1/geocode/autocomplete";
