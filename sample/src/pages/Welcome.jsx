@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom'
-import Footer from '../components/Footer.jsx'
+import Footer from '../components/Footer'
 
 function Welcome() {
   const navigate = useNavigate()

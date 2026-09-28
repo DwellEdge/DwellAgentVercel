@@ -17,6 +17,7 @@ const transactionHistoryRoutes = require("./routes/transactionHistoryRoutes");
 const agentAuthRoutes = require("./routes/agentAuthRoutes");
 const uploadRoutes = require("./routes/uploadRoutes");
 const propertyRoutes = require("./routes/propertyRoutes");
+const paymentRoutes = require("./routes/paymentRoutes");
 
 const app = express();
 
@@ -69,6 +70,7 @@ app.use("/api", messageRoutes);
 app.use("/api/agent-auth", agentAuthRoutes);
 app.use("/api/upload", uploadRoutes);
 app.use("/api/properties", propertyRoutes);
+app.use("/api/payments", paymentRoutes);
 
 app.use("/api", (req, res) => {
   res.status(404).json({

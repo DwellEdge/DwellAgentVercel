@@ -1,4 +1,5 @@
 import { useNavigate } from "react-router-dom";
+import Footer from '../components/Footer'
 
 export default function Agents() {
   const navigate = useNavigate();
@@ -123,9 +124,54 @@ export default function Agents() {
         </div>
       </div>
 
-      <p style={{ color: "#d4a090" }} className="text-sm text-center pb-6">
-        © 2026 DwellAgent
-      </p>
+      {/* Support & Terms section */}
+      <div className="max-w-5xl mx-auto px-4 py-10">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="space-y-4">
+            <div className="p-6 bg-white rounded-2xl border border-orange-100 shadow-sm">
+              <div className="flex items-start gap-4">
+                <div className="w-12 h-12 rounded-full bg-[#e6f0ff] flex items-center justify-center text-xl">💬</div>
+                <div>
+                  <h3 className="text-lg font-semibold text-[#174ea6]">Contact DwellAgent Support</h3>
+                  <p className="text-sm text-slate-600 mt-1">Get help with account setup, agent onboarding, or Razorpay registration. Email <span className="font-medium">support@dwellagent.example</span> or use the Contact page.</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-6 bg-white rounded-2xl border border-orange-100 shadow-sm">
+              <div className="flex items-start gap-4">
+                <div className="w-12 h-12 rounded-full bg-[#fff0e6] flex items-center justify-center text-xl">👤</div>
+                <div>
+                  <h3 className="text-lg font-semibold text-[#174ea6]">Recover your Agent Account</h3>
+                  <p className="text-sm text-slate-600 mt-1">Having trouble logging in? Use the agent login flow to reset your password or contact support for verification assistance.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="p-6 bg-white rounded-2xl border border-orange-100 shadow-sm">
+            <h3 className="text-lg font-semibold text-[#7c2d12]">Terms of Service</h3>
+            <p className="text-xs text-slate-500 mt-2 italic">Last Updated: April 10, 2026 • <a href="/terms" className="text-[#174ea6] hover:underline">Change log</a></p>
+
+            <div className="mt-3 text-sm text-slate-700">
+              <h4 className="font-semibold">The Gist</h4>
+              <p className="mt-2">We at DwellAgent are on a mission to simplify property discovery and agent matching across India. These Terms describe our commitments to you and your responsibilities when using our services. Please read them carefully. If you don’t agree to these Terms, don’t use our services.</p>
+
+              <p className="mt-2">These Terms are available for reuse and adaptation — if you reuse them for your site, update them to reflect your practices and include an appropriate credit back to DwellAgent where possible.</p>
+
+              <h5 className="mt-3 font-semibold">Key points</h5>
+              <ul className="list-disc list-inside text-sm text-slate-700 mt-2 space-y-1">
+                <li>Your use must comply with local laws and our policies.</li>
+                <li>Agent onboarding may require identity verification and KYC for payment collection (Razorpay).</li>
+                <li>We may update Terms and notify users; continued use implies acceptance.</li>
+              </ul>
+
+              <p className="mt-3 text-sm">Read the full Terms on the <a href="/terms" className="text-[#174ea6] hover:underline">Terms of Service</a> page.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+      <Footer />
     </div>
   );
 }

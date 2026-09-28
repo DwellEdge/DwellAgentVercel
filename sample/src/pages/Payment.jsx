@@ -12,14 +12,14 @@ export default function Payment() {
   const name = location.state?.name || "";
   const phone = location.state?.phone || "";
 
-  const amountPerAgent = 30;
+  const amountPerAgent = 3;
   const totalAmount = agents.length * amountPerAgent;
 
   const [sending, setSending] = useState(false);
   const [showSuccessPopup, setShowSuccessPopup] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
-  const API_BASE = import.meta.env.VITE_API_URL || "https://dwellagentvercel.onrender.com";
+  const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5002";
 
   useEffect(() => {
     if (!location.state || agents.length === 0) {
@@ -50,7 +50,7 @@ export default function Payment() {
       // 2. Save transaction — only after messages confirmed sent
       try {
         const agentSelections = agents.map((agent) => ({
-          agentId: agent._id,
+          agentId: agent.agentId || agent._id,
           propertyTypeId: agent.propertyTypeId || "",
           propertyType: agent.propertyTypeName || "",
         }));
@@ -69,9 +69,9 @@ export default function Payment() {
             propertyType: propertyTypeSummary,
             agentSelections,
             noOfAgentsSelected: agents.length,
-            agentIds: agents.map((agent) => agent._id),
+            agentIds: agents.map((agent) => agent.agentId || agent._id),
             mobileNumber: phone,
-            amountReceived: agents.length * 30,
+            amountReceived: agents.length * 3,
           }),
         });
       } catch (err) {
@@ -79,7 +79,55 @@ export default function Payment() {
         // don't block success popup — messages were already sent
       }
 
-      setShowSuccessPopup(true);
+      // 3. Create Razorpay order and open checkout
+      try {
+        const orderRes = await fetch(`${API_BASE}/api/payments/create-order`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ amount: agents.length * 3 }),
+        });
+
+        const orderData = await orderRes.json();
+        if (!orderData.success) throw new Error(orderData.message || "Order creation failed");
+
+        const { order } = orderData;
+
+        const options = {
+          key: import.meta.env.VITE_RAZORPAY_KEY_ID || "",
+          amount: order.amount,
+          currency: order.currency,
+          name: "DwellAgent",
+          description: `Agent selection payment`,
+          order_id: order.id,
+          handler: function (response) {
+            // You may want to verify payment on the server here
+            setShowSuccessPopup(true);
+          },
+          prefill: {
+            name,
+            contact: phone,
+          },
+          theme: { color: "#e8724a" },
+        };
+
+        // Load Razorpay script if not present
+        if (!window.Razorpay) {
+          await new Promise((resolve, reject) => {
+            const script = document.createElement("script");
+            script.src = "https://checkout.razorpay.com/v1/checkout.js";
+            script.onload = resolve;
+            script.onerror = reject;
+            document.body.appendChild(script);
+          });
+        }
+
+        const rzp = new window.Razorpay(options);
+        rzp.open();
+      } catch (err) {
+        console.error("Payment error", err);
+        setErrorMsg("❌ Payment gateway error. Please try again.");
+      }
+
     } catch (err) {
       setErrorMsg("❌ Server error. Please try again.");
     } finally {

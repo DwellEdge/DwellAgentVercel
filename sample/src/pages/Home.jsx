@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import axios from "axios";
 import { useNavigate, useLocation } from "react-router-dom";
 
@@ -6,6 +6,8 @@ export default function Home() {
   const [citySuggestions, setCitySuggestions] = useState([]);
   const [areaSuggestions, setAreaSuggestions] = useState([]);
   const [selectedCity, setSelectedCity] = useState("");
+  const [selectedCityObj, setSelectedCityObj] = useState(null);
+  const [selectedAreaObj, setSelectedAreaObj] = useState(null);
   const [loading, setLoading] = useState(false);
   const [searchPerformed, setSearchPerformed] = useState(false);
   const [loadingAreas, setLoadingAreas] = useState(false);
@@ -58,6 +60,9 @@ export default function Home() {
     const preset = BUDGET_PRESETS.find((p) => p.value === budgetFilter);
     return { min: preset?.min || "", max: preset?.max || "" };
   };
+
+  const cityDebounce = useRef(null);
+  const areaDebounce = useRef(null);
 
   const fetchCities = async (searchValue) => {
     const query = searchValue?.trim();
@@ -240,21 +245,83 @@ export default function Home() {
     }
   }, [selectedPropertyTypeIds]);
 
-  const handleCityChange = (val) => {
-    setCity(val); setSelectedCity(""); setArea(""); setAreaSuggestions([]);
-    setAgentRows([]); setSelectedAgents([]); setSearchPerformed(false);
-    setPreviouslySelectedKeys(new Set()); setPropertyResults([]);
-    if (val.length > 0) fetchCities(val); else setCitySuggestions([]);
+  const getSuggestionLabel = (item) => {
+    const displayName = item?.displayName || item?.display_name || item?.city || item?.name || "";
+    return displayName.trim();
   };
 
-  const handleCitySelect = (cityName) => {
-    setCity(cityName); setSelectedCity(cityName); setCitySuggestions([]);
-    setArea(""); setAgentRows([]); setSelectedAgents([]);
-    setSearchPerformed(false); setPreviouslySelectedKeys(new Set());
+  const handleCityChange = (val) => {
+    setCity(val);
+    setSelectedCity("");
+    setSelectedCityObj(null);
+    setArea("");
+    setAreaSuggestions([]);
+    setAgentRows([]);
+    setSelectedAgents([]);
+    setSearchPerformed(false);
+    setPreviouslySelectedKeys(new Set());
+    setPropertyResults([]);
+
+    if (cityDebounce.current) clearTimeout(cityDebounce.current);
+    if (val && val.length >= 2) {
+      cityDebounce.current = setTimeout(() => fetchCities(val), 350);
+    } else {
+      setCitySuggestions([]);
+    }
+  };
+
+  const handleCitySelect = (suggestion) => {
+    const displayName = suggestion?.displayName || suggestion?.display_name || suggestion?.city_name || suggestion?.city || suggestion?.name || "";
+    const plainCity = suggestion?.city || suggestion?.city_name || displayName.split(",")[0].trim();
+
+    setCity(displayName);
+    setSelectedCity(plainCity);
+    setSelectedCityObj(suggestion || { city: plainCity, displayName });
+    setCitySuggestions([]);
+    setArea("");
+    setAgentRows([]);
+    setSelectedAgents([]);
+    setSearchPerformed(false);
+    setPreviouslySelectedKeys(new Set());
     setPropertyResults([]);
   };
 
-  const handleAreaSelect = (areaName) => { setArea(areaName); setAreaSuggestions([]); };
+  const handleAreaChange = (val) => {
+    setArea(val);
+    setSelectedAreaObj(null);
+    if (areaDebounce.current) clearTimeout(areaDebounce.current);
+
+    if (selectedCityObj && val && val.length >= 2) {
+      const cityForArea = selectedCityObj.city || selectedCityObj.displayName || selectedCity;
+      areaDebounce.current = setTimeout(async () => {
+        try {
+          const res = await axios.get(`${API_BASE}/api/areas`, {
+            params: { city: cityForArea },
+            timeout: 15000,
+          });
+          const list = res.data || [];
+          const filtered = list.filter((item) =>
+            String(item).toLowerCase().includes(val.toLowerCase())
+          );
+          setAreaSuggestions(filtered);
+        } catch (err) {
+          console.error("Area search failed", err.message);
+          setAreaSuggestions([]);
+        }
+      }, 250);
+    } else if (selectedCityObj && (!val || val.length < 2)) {
+      fetchAreas(selectedCityObj.city || selectedCityObj.displayName || selectedCity);
+    } else {
+      setAreaSuggestions([]);
+    }
+  };
+
+  const handleAreaSelect = (areaName) => {
+    const selectedValue = typeof areaName === "string" ? areaName : (areaName.displayName || areaName.areaName || "");
+    setArea(selectedValue);
+    setSelectedAreaObj(typeof areaName === "string" ? { displayName: selectedValue, areaName: selectedValue } : areaName);
+    setAreaSuggestions([]);
+  };
 
   const handleSubmit = (e) => { e.preventDefault(); fetchAgents(); };
 
@@ -353,9 +420,9 @@ export default function Home() {
               {citySuggestions.length > 0 && (
                 <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-2xl shadow-lg border border-orange-100 z-50">
                   {citySuggestions.map((item, i) => (
-                    <button key={i} type="button" onClick={() => handleCitySelect(item.display_name)}
+                    <button key={i} type="button" onClick={() => handleCitySelect(item)}
                       className="w-full px-4 py-3 text-left text-sm hover:bg-orange-50 border-b last:border-b-0 text-slate-900 transition">
-                      {item.display_name}
+                      {getSuggestionLabel(item)}
                     </button>
                   ))}
                 </div>
@@ -378,7 +445,7 @@ export default function Home() {
                   type="text"
                   placeholder={selectedCity ? "Type to search area..." : "Area"}
                   value={area}
-                  onChange={(e) => setArea(e.target.value)}
+                  onChange={(e) => handleAreaChange(e.target.value)}
                   disabled={!selectedCity}
                   autoComplete="off"
                 />

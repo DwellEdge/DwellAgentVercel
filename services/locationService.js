@@ -3,7 +3,10 @@ const axios = require("axios");
 const PropertyDetails = require("../models/PropertyDetails");
 const Agent = require("../models/Agent");
 const Customer = require("../models/Customer");
-const PropertyType = require("../models/Propertytype");
+const PropertyType = require("../models/PropertyType");
+
+const GEOAPIFY_API_KEY = process.env.GEOAPIFY_API_KEY;
+const GEOAPIFY_AUTOCOMPLETE_URL = "https://api.geoapify.com/v1/geocode/autocomplete";
 
 // P01=Rent, P02=Lease, P03=Sale (UI label may be "Purchase")
 const purposeMap = {
@@ -24,6 +27,97 @@ const dedupeCaseInsensitive = (items) => {
     }
   });
   return Array.from(map.values());
+};
+
+const normalizeCityName = (value) => {
+  if (!value) return "";
+  const parts = String(value)
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  const firstMeaningful = parts.find((part) => !["India", "IN", "State", "District"].includes(part));
+  return firstMeaningful || parts[0] || "";
+};
+
+const buildDisplayNameFromParts = (city, state, county, country) => {
+  const labelState = state || county;
+  const parts = [city, labelState, country].filter(Boolean).map((part) => String(part).trim());
+  if (parts.length === 0) return "";
+  return parts.join(", ");
+};
+
+const formatGeoapifyCitySuggestion = (properties = {}, feature = {}) => {
+  const city =
+    properties.city ||
+    properties.town ||
+    properties.village ||
+    properties.name ||
+    "";
+
+  if (!city) return null;
+
+  const county = properties.county || properties.state_district || properties.county_name || "";
+  const state = properties.state || properties.state_code || properties.region || "";
+  const country = properties.country || "India";
+
+  return {
+    displayName: buildDisplayNameFromParts(city, state, county, country),
+    city,
+    state: state || county || "",
+    country,
+    latitude: feature?.geometry?.coordinates?.[1] ?? properties.lat ?? null,
+    longitude: feature?.geometry?.coordinates?.[0] ?? properties.lon ?? null,
+    placeId: properties.place_id || feature.id || null,
+    raw: properties,
+    type: properties.type || properties.result_type || null,
+  };
+};
+
+const getGeoapifyCitySuggestions = async (query) => {
+  if (!GEOAPIFY_API_KEY) return [];
+
+  try {
+    const response = await axios.get(GEOAPIFY_AUTOCOMPLETE_URL, {
+      params: {
+        text: query,
+        limit: 8,
+        type: "city",
+        filter: "countrycode:in",
+        apiKey: GEOAPIFY_API_KEY,
+      },
+      timeout: 10000,
+    });
+
+    const cityMap = new Map();
+
+    (response.data?.features || []).forEach((feature) => {
+      const properties = feature?.properties || {};
+      const suggestion = formatGeoapifyCitySuggestion(properties, feature);
+
+      if (!suggestion) return;
+
+      const cityValue = (properties.city || properties.town || properties.village || properties.name || "").trim();
+      const cityKey = cityValue.toLowerCase();
+
+      if (!cityKey || cityKey.includes("street") || cityKey.includes("road") || cityMap.has(cityKey)) {
+        return;
+      }
+
+      cityMap.set(cityKey, {
+        ...suggestion,
+        display_name: suggestion.displayName,
+        city_name: cityValue,
+        state_name: suggestion.state,
+        country_name: suggestion.country,
+      });
+    });
+
+    return Array.from(cityMap.values()).slice(0, 8);
+  } catch (error) {
+    console.error("Geoapify location search failed:", error.message);
+    return [];
+  }
 };
 
 const resolvePurpose = async (propertyTypeOrId) => {
@@ -75,45 +169,32 @@ const searchLocations = async (query) => {
     ...dbCustomerCities,
   ]);
 
-  if (dbCities.length > 0) {
-    return dbCities.map((cityName, index) => ({
-      display_name: cityName,
-      place_id: `db_${index}`,
-      lat: "0",
-      lon: "0",
-      source: "database",
-    }));
-  }
-
-  const response = await axios.get(
-    "https://nominatim.openstreetmap.org/search",
-    {
-      params: {
-        q: `${query}, India`,
-        format: "json",
-        addressdetails: 1,
-        limit: 8,
-        countrycodes: "in",
-      },
-      headers: {
-        "User-Agent": "DwellEdge/1.0",
-      },
-      timeout: 1000,
-    },
-  );
-
   const cityMap = new Map();
 
-  (response.data || []).forEach((location) => {
-    const cityName = location.display_name.split(",")[0].trim();
+  [...dbCities, ...(await getGeoapifyCitySuggestions(query))].forEach((item) => {
+    const rawDisplayName = item.displayName || item.display_name || item.city_name || item.city || item.name || item;
+    const cityName = item.city || item.city_name || normalizeCityName(rawDisplayName);
+    const stateName = item.state || item.state_name || "";
+    const countryName = item.country || item.country_name || "India";
+    const displayName = item.displayName || item.display_name || (cityName ? buildDisplayNameFromParts(cityName, stateName, "", countryName) : cityName);
 
-    if (cityName && !cityMap.has(cityName.toLowerCase())) {
+    if (!cityName) return;
+    if (!cityMap.has(cityName.toLowerCase())) {
       cityMap.set(cityName.toLowerCase(), {
-        display_name: cityName,
-        place_id: location.place_id,
-        lat: location.lat,
-        lon: location.lon,
-        source: "nominatim",
+        displayName,
+        display_name: displayName,
+        city: cityName,
+        city_name: cityName,
+        state: stateName,
+        state_name: stateName,
+        country: countryName,
+        country_name: countryName,
+        place_id: item.place_id || item.placeId || `db_${cityName}`,
+        latitude: item.latitude ?? item.lat ?? null,
+        longitude: item.longitude ?? item.lon ?? null,
+        lat: item.latitude ?? item.lat ?? "0",
+        lon: item.longitude ?? item.lon ?? "0",
+        source: item.source || "database",
       });
     }
   });
