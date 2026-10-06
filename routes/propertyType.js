@@ -1,5 +1,5 @@
 const express = require("express");
-const { getPropertyTypes } = require("../controllers/propertyTypeController");
+const { getPropertyTypes } = require("../controllers/PropertyType");
 
 const router = express.Router();
 router.get("/", getPropertyTypes);
