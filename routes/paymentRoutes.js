@@ -1,14 +1,17 @@
 const express = require("express");
 const router = express.Router();
-const { createOrder, verifyWebhook } = require("../controllers/paymentController");
+const {
+  createOrder,
+  verifyWebhook,
+  verifyPayment,
+} = require("../controllers/paymentController");
 
 router.post("/create-order", createOrder);
+router.post("/verify", verifyPayment); // new
 
-// Razorpay webhooks often require the raw body to validate signature.
+// Razorpay webhooks need the raw body to validate the signature.
 router.post("/webhook", express.raw({ type: "application/json" }), (req, res) => {
-  // attach rawBody for verification
   req.rawBody = req.body.toString();
-  // parse JSON body for handlers
   try {
     req.body = JSON.parse(req.rawBody);
   } catch (e) {

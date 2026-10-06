@@ -22,6 +22,8 @@ const getAgents = async (req, res) => {
     const city = req.query.city?.trim();
     const area = req.query.area?.trim();
     const propertyTypeId = req.query.propertyTypeId?.trim();
+    const minBudget = req.query.minBudget ? Number(req.query.minBudget) : null;
+    const maxBudget = req.query.maxBudget ? Number(req.query.maxBudget) : null;
 
     if (!city || !area || !propertyTypeId) {
       return res.json([]);
@@ -32,30 +34,46 @@ const getAgents = async (req, res) => {
       return res.json([]);
     }
 
-    // Find all active (non-expired) properties matching city/area/purpose
-    const properties = await PropertyDetails.find({
+    const filter = {
       city: { $regex: `^${city}$`, $options: "i" },
       area: { $regex: `^${area}$`, $options: "i" },
       propertyAvailableFor: purpose,
       expiryDate: { $gt: new Date() },
-    }).lean();
+    };
+
+    if (minBudget !== null || maxBudget !== null) {
+      filter.propertyCost = {};
+      if (minBudget !== null && !Number.isNaN(minBudget)) {
+        filter.propertyCost.$gte = minBudget;
+      }
+      if (maxBudget !== null && !Number.isNaN(maxBudget)) {
+        filter.propertyCost.$lte = maxBudget;
+      }
+    }
+
+    const properties = await PropertyDetails.find(filter).lean();
 
     if (properties.length === 0) {
       return res.json([]);
     }
 
-    // Count properties per agent
     const agentCountMap = {};
     properties.forEach((prop) => {
-      agentCountMap[prop.agentId] = (agentCountMap[prop.agentId] || 0) + 1;
+      const id = String(prop.agentId || "").trim();
+      if (!id) return;
+      agentCountMap[id] = (agentCountMap[id] || 0) + 1;
     });
 
-    // Fetch agent details for those agentIds
     const agentIds = Object.keys(agentCountMap);
     const agents = await Agent.find({ agentId: { $in: agentIds } }).lean();
 
     const result = agents.map((agent) => ({
-      ...agent,
+      _id: agent._id,
+      agentId: agent.agentId,
+      firstName: agent.firstName,
+      lastName: agent.lastName,
+      area,
+      city,
       filteredCount: agentCountMap[agent.agentId] || 0,
       filteredPropertyType: purpose,
     }));

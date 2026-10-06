@@ -32,105 +32,121 @@ export default function Payment() {
     setErrorMsg("");
 
     try {
-      // 1. Send WhatsApp + SMS
-      const res = await fetch(`${API_BASE}/api/send-message`, {
+      // 1. Load Razorpay script if needed
+      if (!window.Razorpay) {
+        await new Promise((resolve, reject) => {
+          const script = document.createElement("script");
+          script.src = "https://checkout.razorpay.com/v1/checkout.js";
+          script.onload = resolve;
+          script.onerror = reject;
+          document.body.appendChild(script);
+        });
+      }
+
+      // 2. Create order
+      const orderRes = await fetch(`${API_BASE}/api/payments/create-order`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone, name, agents }),
+        body: JSON.stringify({ amount: totalAmount }),
+      });
+      const orderData = await orderRes.json();
+      if (!orderData.success) {
+        throw new Error(orderData.message || "Order creation failed");
+      }
+      const { order } = orderData;
+
+      // 3. Open checkout
+      const rzp = new window.Razorpay({
+        key: import.meta.env.VITE_RAZORPAY_KEY_ID || "",
+        amount: order.amount,
+        currency: order.currency,
+        name: "DwellAgent",
+        description: "Agent selection payment",
+        order_id: order.id,
+        prefill: { name, contact: phone },
+        theme: { color: "#e8724a" },
+
+        // Runs ONLY after a successful payment
+        handler: async (response) => {
+          try {
+            // 3a. Verify payment. The server sends SMS + WhatsApp only if valid
+            const verifyRes = await fetch(`${API_BASE}/api/payments/verify`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_signature: response.razorpay_signature,
+                phone,
+                name,
+                agents,
+              }),
+            });
+            const verifyData = await verifyRes.json();
+            if (!verifyData.success) {
+              throw new Error(verifyData.message || "Verification failed");
+            }
+
+            // 3b. Save transaction (only after a verified payment)
+            try {
+              const agentSelections = agents.map((agent) => ({
+                agentId: agent.agentId || agent._id,
+                propertyTypeId: agent.propertyTypeId || "",
+                propertyType: agent.propertyTypeName || "",
+              }));
+
+              const propertyTypeSummary = [
+                ...new Set(
+                  agentSelections.map((s) => s.propertyType).filter(Boolean)
+                ),
+              ].join(", ");
+
+              await fetch(`${API_BASE}/api/transactions`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  transactionId: response.razorpay_payment_id,
+                  city,
+                  area,
+                  propertyType: propertyTypeSummary,
+                  agentSelections,
+                  noOfAgentsSelected: agents.length,
+                  agentIds: agents.map((agent) => agent.agentId || agent._id),
+                  mobileNumber: phone,
+                  amountReceived: totalAmount,
+                }),
+              });
+            } catch (err) {
+              console.error("Transaction save error", err);
+              // don't block the success popup, payment and messages are done
+            }
+
+            setShowSuccessPopup(true);
+          } catch (err) {
+            setErrorMsg(
+              "❌ Payment done but confirmation failed: " + err.message
+            );
+          } finally {
+            setSending(false);
+          }
+        },
+
+        modal: {
+          ondismiss: () => setSending(false), // user closed checkout without paying
+        },
       });
 
-      const data = await res.json();
-
-      if (!data.success) {
-        setErrorMsg("❌ Failed to send message: " + data.error);
+      rzp.on("payment.failed", () => {
+        setErrorMsg("❌ Payment failed. Please try again.");
         setSending(false);
-        return;
-      }
+      });
 
-      // 2. Save transaction — only after messages confirmed sent
-      try {
-        const agentSelections = agents.map((agent) => ({
-          agentId: agent.agentId || agent._id,
-          propertyTypeId: agent.propertyTypeId || "",
-          propertyType: agent.propertyTypeName || "",
-        }));
-
-        const propertyTypeSummary = [
-          ...new Set(agentSelections.map((s) => s.propertyType).filter(Boolean)),
-        ].join(", ");
-
-        await fetch(`${API_BASE}/api/transactions`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            transactionId: `TXN${Date.now()}`,
-            city,
-            area,
-            propertyType: propertyTypeSummary,
-            agentSelections,
-            noOfAgentsSelected: agents.length,
-            agentIds: agents.map((agent) => agent.agentId || agent._id),
-            mobileNumber: phone,
-            amountReceived: agents.length * 3,
-          }),
-        });
-      } catch (err) {
-        console.error("Transaction save error", err);
-        // don't block success popup — messages were already sent
-      }
-
-      // 3. Create Razorpay order and open checkout
-      try {
-        const orderRes = await fetch(`${API_BASE}/api/payments/create-order`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ amount: agents.length * 3 }),
-        });
-
-        const orderData = await orderRes.json();
-        if (!orderData.success) throw new Error(orderData.message || "Order creation failed");
-
-        const { order } = orderData;
-
-        const options = {
-          key: import.meta.env.VITE_RAZORPAY_KEY_ID || "",
-          amount: order.amount,
-          currency: order.currency,
-          name: "DwellAgent",
-          description: `Agent selection payment`,
-          order_id: order.id,
-          handler: function (response) {
-            // You may want to verify payment on the server here
-            setShowSuccessPopup(true);
-          },
-          prefill: {
-            name,
-            contact: phone,
-          },
-          theme: { color: "#e8724a" },
-        };
-
-        // Load Razorpay script if not present
-        if (!window.Razorpay) {
-          await new Promise((resolve, reject) => {
-            const script = document.createElement("script");
-            script.src = "https://checkout.razorpay.com/v1/checkout.js";
-            script.onload = resolve;
-            script.onerror = reject;
-            document.body.appendChild(script);
-          });
-        }
-
-        const rzp = new window.Razorpay(options);
-        rzp.open();
-      } catch (err) {
-        console.error("Payment error", err);
-        setErrorMsg("❌ Payment gateway error. Please try again.");
-      }
-
+      rzp.open();
     } catch (err) {
-      setErrorMsg("❌ Server error. Please try again.");
-    } finally {
+      console.error("Payment error", err);
+      setErrorMsg(
+        "❌ " + (err.message || "Payment gateway error. Please try again.")
+      );
       setSending(false);
     }
   };
@@ -254,7 +270,7 @@ export default function Payment() {
               }
               className="flex-1 text-white py-3 rounded-xl text-sm font-bold shadow-lg hover:opacity-90 transition disabled:cursor-not-allowed"
             >
-              {sending ? "Sending..." : "Proceed To Pay →"}
+              {sending ? "Processing..." : "Proceed To Pay →"}
             </button>
             <button
               onClick={() => navigate(-1)}
@@ -286,10 +302,14 @@ export default function Payment() {
 
             <h2 style={{ color: "#7c2d12" }} className="text-3xl font-extrabold mb-2">Thank You!</h2>
             <p style={{ color: "#a8674a" }} className="text-sm mb-6">
-              SMS and WhatsApp message sent to your mobile successfully 💐
+              Payment successful! SMS and WhatsApp message sent to your mobile 💐
             </p>
 
             <div style={{ background: "#fdd9c8" }} className="w-full h-px mb-6" />
+
+            <p style={{ color: "#7c2d12" }} className="font-bold text-sm mb-3">
+              Selected Agents
+            </p>
 
             <div className="flex flex-col gap-4">
               {agents.map((agent) => (

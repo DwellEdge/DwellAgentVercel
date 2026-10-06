@@ -1,6 +1,12 @@
 const TransactionHistory = require("../models/TransactionHistory");
 const Customer = require("../models/Customer");
 
+const escapeRegex = (s = "") =>
+  String(s).trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+// "Tirupati, Andhra Pradesh, India" -> "Tirupati"
+const toPlainCity = (city = "") => String(city).split(",")[0].trim();
+
 const createTransaction = async (req, res) => {
   try {
     const customer = await Customer.findOne({
@@ -9,6 +15,8 @@ const createTransaction = async (req, res) => {
 
     const transactionData = {
       ...req.body,
+      // always store the plain city so it matches what Home.jsx searches with
+      city: toPlainCity(req.body.city),
       customerId: customer?.Id || null,
     };
 
@@ -37,9 +45,10 @@ const getTransactions = async (req, res) => {
   }
 };
 
-// Returns the distinct agentIds previously selected by ANY customer for
-// this exact city + area + purpose, so Home.jsx can sink them to the
-// bottom of the results list on a fresh search.
+// Returns [{ agentId, lastSelectedAt }] for agents previously selected (paid)
+// by ANY customer for this exact city + area + purpose. Home.jsx sorts by
+// lastSelectedAt so the most recently selected agent sits at the very bottom
+// and the order keeps rotating with every new payment.
 const getPreviousAgents = async (req, res) => {
   try {
     const city = req.query.city?.trim();
@@ -50,24 +59,29 @@ const getPreviousAgents = async (req, res) => {
       return res.json([]);
     }
 
-    const transactions = await TransactionHistory.find({
-      city: { $regex: `^${city}$`, $options: "i" },
-      area: { $regex: `^${area}$`, $options: "i" },
-      "agentSelections.propertyTypeId": propertyTypeId,
-    }).lean();
+    const rows = await TransactionHistory.aggregate([
+      {
+        $match: {
+          // "Tirupati" also matches old records saved as "Tirupati, Andhra Pradesh, India"
+          city: new RegExp(`^${escapeRegex(toPlainCity(city))}(,|$)`, "i"),
+          area: new RegExp(`^${escapeRegex(area)}$`, "i"),
+        },
+      },
+      { $unwind: "$agentSelections" },
+      { $match: { "agentSelections.propertyTypeId": propertyTypeId } },
+      {
+        $group: {
+          _id: "$agentSelections.agentId",
+          lastSelectedAt: { $max: "$createdDateAndTime" },
+        },
+      },
+      { $project: { _id: 0, agentId: "$_id", lastSelectedAt: 1 } },
+    ]);
 
-    const agentIds = new Set();
-    transactions.forEach((txn) => {
-      (txn.agentSelections || []).forEach((sel) => {
-        if (sel.propertyTypeId === propertyTypeId && sel.agentId) {
-          agentIds.add(sel.agentId);
-        }
-      });
-    });
-
-    res.json(Array.from(agentIds));
+    res.json(rows);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error("getPreviousAgents error:", error.message);
+    res.status(500).json([]);
   }
 };
 

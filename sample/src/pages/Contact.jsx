@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import Footer from '../components/Footer.jsx'
+import Footer from '../components/Footer'
 import { useNavigate } from 'react-router-dom'
 
 export default function Contact() {

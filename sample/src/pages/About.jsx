@@ -1,4 +1,4 @@
-import Footer from '../components/Footer.jsx'
+import Footer from '../components/Footer'
 import { useNavigate } from 'react-router-dom'
 
 export default function About() {
@@ -61,7 +61,7 @@ export default function About() {
               { step: "1", title: "Search", desc: "Enter your city, area, and what you're looking for — Rent, Lease, or Sale. Set a budget range if needed." },
               { step: "2", title: "Discover", desc: "See a list of verified agents who have active property listings in your exact area, along with the number of properties they handle." },
               { step: "3", title: "Select", desc: "Choose one or more agents. View their property listings with photos and videos before deciding." },
-              { step: "4", title: "Connect", desc: "Pay ₹30 per agent and receive their contact details instantly on your phone via SMS and WhatsApp." },
+              { step: "4", title: "Connect", desc: "Pay ₹3 per agent and receive their contact details instantly on your phone via SMS and WhatsApp." },
             ].map((item) => (
               <div key={item.step} style={{ background: '#fff', border: '1px solid #fdd9c8' }} className="rounded-2xl p-4 flex gap-4 items-start">
                 <div style={{ background: 'linear-gradient(135deg, #e8724a, #f59e6c)', color: '#fff' }} className="rounded-full w-8 h-8 flex items-center justify-center font-extrabold text-sm flex-shrink-0">

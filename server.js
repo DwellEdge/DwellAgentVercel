@@ -9,12 +9,11 @@ const connectDB = require("./config/db");
 
 const agentRoutes = require("./routes/agentRoutes");
 const customerRoutes = require("./routes/customerRoutes");
-const messageRoutes = require("./routes/messageRoutes");
 const propertyTypeGetRoutes = require("./routes/propertyType");
 const propertyTypeCreateRoutes = require("./routes/propertyTypeRoutes");
 const locationRoutes = require("./routes/locationRoutes");
 const transactionHistoryRoutes = require("./routes/transactionHistoryRoutes");
-const agentAuthRoutes = require("./routes/agentAuthRoutes");
+const agentAuthRoutes = require("./routes/agentauthRoutes");
 const uploadRoutes = require("./routes/uploadRoutes");
 const propertyRoutes = require("./routes/propertyRoutes");
 const paymentRoutes = require("./routes/paymentRoutes");
@@ -34,6 +33,10 @@ if (!fs.existsSync(imagesDir)) fs.mkdirSync(imagesDir, { recursive: true });
 if (!fs.existsSync(videosDir)) fs.mkdirSync(videosDir, { recursive: true });
 
 app.use(cors());
+
+// NEW: keep the raw body for the Razorpay webhook (must be BEFORE express.json)
+app.use("/api/payments/webhook", express.raw({ type: "application/json" }));
+
 app.use(express.json());
 
 app.use((req, res, next) => {
@@ -66,7 +69,7 @@ app.use("/api/property-types", propertyTypeCreateRoutes);
 app.use("/api/transactions", transactionHistoryRoutes);
 app.use("/api/agents", agentRoutes);
 app.use("/api/customers", customerRoutes);
-app.use("/api", messageRoutes);
+// REMOVED: app.use("/api", messageRoutes);
 app.use("/api/agent-auth", agentAuthRoutes);
 app.use("/api/upload", uploadRoutes);
 app.use("/api/properties", propertyRoutes);

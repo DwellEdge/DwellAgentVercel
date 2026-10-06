@@ -3,7 +3,7 @@ const router = express.Router();
 
 const {
   createPropertyType,
-} = require("../controllers/propertyTypeController");
+} = require("../controllers/propertytypeController");
 
 router.post("/", createPropertyType);
 

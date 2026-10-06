@@ -20,13 +20,17 @@ export default function Home() {
   // Req 6 — Budget Range
   const [minBudget, setMinBudget] = useState("");
   const [maxBudget, setMaxBudget] = useState("");
-  const [budgetFilter, setBudgetFilter] = useState("custom"); // "custom" | "under10" | "10to25" | "25to50" | "above50"
+  const [budgetFilter, setBudgetFilter] = useState("custom"); // "custom" | "any" | "under10" | "10to25" | "25to50" | "above50"
 
   const [agentRows, setAgentRows] = useState([]);
   const [selectedAgents, setSelectedAgents] = useState([]);
   const [propertyTypes, setPropertyTypes] = useState([]);
   const [selectedPropertyTypeIds, setSelectedPropertyTypeIds] = useState([]);
-  const [previouslySelectedKeys, setPreviouslySelectedKeys] = useState(new Set());
+
+  // Map of "agentId::propertyTypeId" -> timestamp (ms) of the last PAID selection
+  // for the current city + area. Used to rotate agents: never selected first,
+  // oldest selection next, most recent selection at the very bottom.
+  const [previouslySelectedKeys, setPreviouslySelectedKeys] = useState(new Map());
   const [showConfirmPopup, setShowConfirmPopup] = useState(false);
 
   // Req 7 — Properties view
@@ -39,7 +43,16 @@ export default function Home() {
 
   const makeRowKey = (agentId, ptId) => `${agentId}::${ptId}`;
 
-  // Budget preset ranges in lakhs for Rent (monthly), bigger for Sale
+  // Latest selection time for an agent (checks every id the agent might be known by)
+  const getLastSelectedAt = (agentIds, ptId) =>
+    Math.max(
+      0,
+      ...agentIds
+        .filter(Boolean)
+        .map((id) => previouslySelectedKeys.get(makeRowKey(id, ptId)) || 0)
+    );
+
+  // Budget preset ranges (monthly rent)
   const BUDGET_PRESETS = [
     { label: "Any", value: "any", min: "", max: "" },
     { label: "Under ₹10K", value: "under10", min: "", max: "10000" },
@@ -135,19 +148,25 @@ export default function Home() {
       });
       setAgentRows(nextRows);
 
+      // Previously selected (paid) agents for this city + area + purpose
       const prevResponses = await Promise.all(
         selectedPropertyTypeIds.map((ptId) =>
           axios.get(`${API_BASE}/api/transactions/previous-agents`, {
             params: { city: selectedCity, area, propertyTypeId: ptId }, timeout: 5000,
           })
-            .then((res) => ({ ptId, agentIds: res.data || [] }))
-            .catch(() => ({ ptId, agentIds: [] }))
+            .then((res) => ({ ptId, items: res.data || [] }))
+            .catch(() => ({ ptId, items: [] }))
         )
       );
 
-      const nextPrev = new Set();
-      prevResponses.forEach(({ ptId, agentIds }) => {
-        agentIds.forEach((id) => nextPrev.add(makeRowKey(id, ptId)));
+      const nextPrev = new Map();
+      prevResponses.forEach(({ ptId, items }) => {
+        items.forEach((item) => {
+          // supports both [{ agentId, lastSelectedAt }] and legacy ["id1", "id2"]
+          const id = typeof item === "string" ? item : item.agentId;
+          const ts = typeof item === "string" ? 1 : new Date(item.lastSelectedAt).getTime() || 1;
+          if (id) nextPrev.set(makeRowKey(id, ptId), ts);
+        });
       });
       setPreviouslySelectedKeys(nextPrev);
     } catch (err) {
@@ -199,7 +218,7 @@ export default function Home() {
     if (isReload) {
       setCity(""); setArea(""); setAgentRows([]); setSelectedAgents([]);
       setSelectedCity(""); setSearchPerformed(false);
-      setPreviouslySelectedKeys(new Set());
+      setPreviouslySelectedKeys(new Map());
       setPropertyResults([]); setViewMode("agents");
       setMinBudget(""); setMaxBudget(""); setBudgetFilter("any");
       window.history.replaceState(null, "");
@@ -210,7 +229,8 @@ export default function Home() {
     const isReload = performance.getEntriesByType("navigation")[0]?.type === "reload";
     if (isReload) return;
     if (location.state) {
-      setCity(location.state.city || "");
+      // `city` in state is the plain city; `cityDisplay` is what the input box shows
+      setCity(location.state.cityDisplay || location.state.city || "");
       setArea(location.state.area || "");
       setAgentRows(location.state.agentRows || []);
       setSelectedAgents(location.state.selectedAgents || []);
@@ -238,11 +258,11 @@ export default function Home() {
   useEffect(() => {
     if (selectedCity && area && searchPerformed) {
       fetchAgents();
-      // eslint-disable-next-line react-hooks/exhaustive-deps
       if (viewMode === "properties") {
         fetchProperties();
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedPropertyTypeIds]);
 
   const getSuggestionLabel = (item) => {
@@ -259,7 +279,7 @@ export default function Home() {
     setAgentRows([]);
     setSelectedAgents([]);
     setSearchPerformed(false);
-    setPreviouslySelectedKeys(new Set());
+    setPreviouslySelectedKeys(new Map());
     setPropertyResults([]);
 
     if (cityDebounce.current) clearTimeout(cityDebounce.current);
@@ -282,7 +302,7 @@ export default function Home() {
     setAgentRows([]);
     setSelectedAgents([]);
     setSearchPerformed(false);
-    setPreviouslySelectedKeys(new Set());
+    setPreviouslySelectedKeys(new Map());
     setPropertyResults([]);
   };
 
@@ -338,16 +358,16 @@ export default function Home() {
     });
   };
 
+  // Rotation: never-selected agents first (original order kept, sort is stable),
+  // then oldest selection, with the most recently selected agent at the bottom.
   const visibleRows = agentRows
     .filter((row) => selectedPropertyTypeIds.includes(row.propertyTypeId))
     .slice()
-    .sort((a, b) => {
-      const wasPrevious = (row) =>
-        previouslySelectedKeys.has(row.rowKey) ||
-        previouslySelectedKeys.has(makeRowKey(row._id, row.propertyTypeId)) ||
-        previouslySelectedKeys.has(makeRowKey(row.agentId, row.propertyTypeId));
-      return (wasPrevious(a) ? 1 : 0) - (wasPrevious(b) ? 1 : 0);
-    });
+    .sort(
+      (a, b) =>
+        getLastSelectedAt([a.agentId, a._id], a.propertyTypeId) -
+        getLastSelectedAt([b.agentId, b._id], b.propertyTypeId)
+    );
 
   const handleContinue = () => setShowConfirmPopup(true);
 
@@ -356,7 +376,12 @@ export default function Home() {
     setShowConfirmPopup(false);
     navigate("/phoneform", {
       state: {
-        agents: chosenRows, city, area,
+        // each row carries its own propertyTypeId — save the transaction per row,
+        // not with propertyTypeId below
+        agents: chosenRows,
+        city: selectedCity, // plain city (matches what previous-agents searches by)
+        cityDisplay: city,  // display name for the input box
+        area,
         propertyTypeId: selectedPropertyTypeIds[0] || "",
         propertyTypeName: chosenRows[0]?.propertyTypeName || "",
         agentRows, selectedAgents,
@@ -378,6 +403,19 @@ export default function Home() {
     .join(", ") || "Rent";
 
   const { min: activMin, max: activMax } = getActiveBudget();
+
+  // Properties sorted with the same rotation rule
+  const sortedProperties = [...propertyResults].sort((a, b) => {
+    const lastSel = (prop) => {
+      const agentId = prop.agent?.agentId || prop.agentId || "";
+      const agentMongoId = prop.agent?._id || "";
+      return Math.max(
+        0,
+        ...selectedPropertyTypeIds.map((ptId) => getLastSelectedAt([agentId, agentMongoId], ptId))
+      );
+    };
+    return lastSel(a) - lastSel(b);
+  });
 
   return (
     <div
@@ -683,170 +721,160 @@ export default function Home() {
                 Properties ({propertyResults.length})
               </div>
 
-              {[...propertyResults]
-                .sort((a, b) => {
-                  const wasPrevious = (prop) => {
-                    const agentId = prop.agent?.agentId || prop.agentId || "";
-                    return selectedPropertyTypeIds.some((ptId) =>
-                      previouslySelectedKeys.has(makeRowKey(agentId, ptId))
-                    );
-                  };
-                  return (wasPrevious(a) ? 1 : 0) - (wasPrevious(b) ? 1 : 0);
-                })
-                .map((prop) => {
-                  const currentPhotoIdx = activePhotoIndex[prop._id] || 0;
-                  const hasPhotos = prop.hasPhotos && prop.photoUrls?.length > 0;
-                  const hasVideos = prop.hasVideos && prop.videoUrls?.length > 0;
+              {sortedProperties.map((prop) => {
+                const currentPhotoIdx = activePhotoIndex[prop._id] || 0;
+                const hasPhotos = prop.hasPhotos && prop.photoUrls?.length > 0;
+                const hasVideos = prop.hasVideos && prop.videoUrls?.length > 0;
 
-                  return (
-                    <div
-                      key={prop._id}
-                      style={{ background: "#fff", border: "1px solid #fdd9c8" }}
-                      className="rounded-2xl overflow-hidden shadow-md"
-                    >
-                      {/* Media section */}
-                      {hasPhotos && playingVideo !== prop._id && (
-                        <div className="relative">
-                          <img
-                            src={prop.photoUrls[currentPhotoIdx]}
-                            alt={`Property photo ${currentPhotoIdx + 1}`}
-                            className="w-full h-56 object-cover"
-                          />
-                          {/* Photo navigation */}
-                          {prop.photoUrls.length > 1 && (
-                            <>
-                              <button
-                                onClick={() => setActivePhotoIndex((prev) => ({
-                                  ...prev, [prop._id]: Math.max(0, (prev[prop._id] || 0) - 1)
-                                }))}
-                                className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/40 text-white rounded-full w-8 h-8 flex items-center justify-center hover:bg-black/60 transition text-lg"
-                              >‹</button>
-                              <button
-                                onClick={() => setActivePhotoIndex((prev) => ({
-                                  ...prev, [prop._id]: Math.min(prop.photoUrls.length - 1, (prev[prop._id] || 0) + 1)
-                                }))}
-                                className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/40 text-white rounded-full w-8 h-8 flex items-center justify-center hover:bg-black/60 transition text-lg"
-                              >›</button>
-                              {/* Dots */}
-                              <div className="absolute bottom-2 left-0 right-0 flex justify-center gap-1">
-                                {prop.photoUrls.map((_, i) => (
-                                  <button
-                                    key={i}
-                                    onClick={() => setActivePhotoIndex((prev) => ({ ...prev, [prop._id]: i }))}
-                                    className={`w-2 h-2 rounded-full transition ${i === currentPhotoIdx ? "bg-white" : "bg-white/50"}`}
-                                  />
-                                ))}
-                              </div>
-                            </>
-                          )}
-                          {/* Photo count */}
-                          <div className="absolute top-2 right-2 bg-black/50 text-white text-xs px-2 py-1 rounded-full">
-                            📷 {currentPhotoIdx + 1}/{prop.photoUrls.length}
-                          </div>
-                          {/* Video button */}
-                          {hasVideos && (
+                return (
+                  <div
+                    key={prop._id}
+                    style={{ background: "#fff", border: "1px solid #fdd9c8" }}
+                    className="rounded-2xl overflow-hidden shadow-md"
+                  >
+                    {/* Media section */}
+                    {hasPhotos && playingVideo !== prop._id && (
+                      <div className="relative">
+                        <img
+                          src={prop.photoUrls[currentPhotoIdx]}
+                          alt={`Property photo ${currentPhotoIdx + 1}`}
+                          className="w-full h-56 object-cover"
+                        />
+                        {/* Photo navigation */}
+                        {prop.photoUrls.length > 1 && (
+                          <>
                             <button
-                              onClick={() => setPlayingVideo(prop._id)}
-                              style={{ background: "rgba(232,114,74,0.9)" }}
-                              className="absolute bottom-2 left-2 text-white text-xs font-bold px-3 py-1.5 rounded-full flex items-center gap-1 hover:opacity-90 transition"
-                            >
-                              ▶ Watch Video
-                            </button>
-                          )}
+                              onClick={() => setActivePhotoIndex((prev) => ({
+                                ...prev, [prop._id]: Math.max(0, (prev[prop._id] || 0) - 1)
+                              }))}
+                              className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/40 text-white rounded-full w-8 h-8 flex items-center justify-center hover:bg-black/60 transition text-lg"
+                            >‹</button>
+                            <button
+                              onClick={() => setActivePhotoIndex((prev) => ({
+                                ...prev, [prop._id]: Math.min(prop.photoUrls.length - 1, (prev[prop._id] || 0) + 1)
+                              }))}
+                              className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/40 text-white rounded-full w-8 h-8 flex items-center justify-center hover:bg-black/60 transition text-lg"
+                            >›</button>
+                            {/* Dots */}
+                            <div className="absolute bottom-2 left-0 right-0 flex justify-center gap-1">
+                              {prop.photoUrls.map((_, i) => (
+                                <button
+                                  key={i}
+                                  onClick={() => setActivePhotoIndex((prev) => ({ ...prev, [prop._id]: i }))}
+                                  className={`w-2 h-2 rounded-full transition ${i === currentPhotoIdx ? "bg-white" : "bg-white/50"}`}
+                                />
+                              ))}
+                            </div>
+                          </>
+                        )}
+                        {/* Photo count */}
+                        <div className="absolute top-2 right-2 bg-black/50 text-white text-xs px-2 py-1 rounded-full">
+                          📷 {currentPhotoIdx + 1}/{prop.photoUrls.length}
                         </div>
-                      )}
-
-                      {/* Video player */}
-                      {hasVideos && playingVideo === prop._id && (
-                        <div className="relative">
-                          <video
-                            src={prop.videoUrls[0]}
-                            controls autoPlay
-                            className="w-full h-56 object-cover bg-black"
-                          />
+                        {/* Video button */}
+                        {hasVideos && (
                           <button
-                            onClick={() => setPlayingVideo(null)}
-                            className="absolute top-2 right-2 bg-black/50 text-white text-xs px-2 py-1 rounded-full"
+                            onClick={() => setPlayingVideo(prop._id)}
+                            style={{ background: "rgba(232,114,74,0.9)" }}
+                            className="absolute bottom-2 left-2 text-white text-xs font-bold px-3 py-1.5 rounded-full flex items-center gap-1 hover:opacity-90 transition"
                           >
-                            ✕ Close Video
+                            ▶ Watch Video
                           </button>
-                        </div>
-                      )}
+                        )}
+                      </div>
+                    )}
 
-                      {/* No photos message — shown per property */}
-                      {!hasPhotos && playingVideo !== prop._id && (
-                        <div
-                          style={{ background: "#fff8f5", borderBottom: "1px solid #fdd9c8" }}
-                          className="w-full h-32 flex flex-col items-center justify-center gap-1"
-                        >
-                          <span className="text-3xl">📷</span>
-                          <p style={{ color: "#a8674a" }} className="text-xs font-medium">
-                            No photos available for this property
-                          </p>
-                          {hasVideos && (
-                            <button
-                              onClick={() => setPlayingVideo(prop._id)}
-                              style={{ background: "rgba(232,114,74,0.9)" }}
-                              className="text-white text-xs font-bold px-3 py-1.5 rounded-full flex items-center gap-1 hover:opacity-90 transition mt-1"
-                            >
-                              ▶ Watch Video
-                            </button>
-                          )}
-                        </div>
-                      )}
-
-                      <div className="p-5 flex flex-col gap-2">
-                        <div className="flex gap-2 flex-wrap">
-                          <span
-                            style={{ background: "linear-gradient(135deg, #e8724a, #f59e6c)", color: "#fff" }}
-                            className="text-xs font-bold px-3 py-1 rounded-full"
-                          >
-                            {prop.propertyAvailableFor}
-                          </span>
-                          {prop.propertyType && (
-                            <span
-                              style={{ background: "#fff8f5", color: "#c2511f", border: "1px solid #fdd9c8" }}
-                              className="text-xs font-semibold px-3 py-1 rounded-full"
-                            >
-                              {prop.propertyType}
-                            </span>
-                          )}
-                          {prop.bhk && (
-                            <span
-                              style={{ background: "#fff8f5", color: "#c2511f", border: "1px solid #fdd9c8" }}
-                              className="text-xs font-semibold px-3 py-1 rounded-full"
-                            >
-                              🛏️ {prop.bhk}
-                            </span>
-                          )}
-                        </div>
-                        <p style={{ color: "#7c2d12" }} className="font-bold text-sm">
-                          {prop.agent
-                            ? `${prop.agent.firstName || ""} ${prop.agent.lastName || ""}`.trim()
-                            : "Agent"}
-                        </p>
-
-                        {/* Map — disabled for now, will be enabled once location data is wired up */}
+                    {/* Video player */}
+                    {hasVideos && playingVideo === prop._id && (
+                      <div className="relative">
+                        <video
+                          src={prop.videoUrls[0]}
+                          controls autoPlay
+                          className="w-full h-56 object-cover bg-black"
+                        />
                         <button
-                          type="button"
-                          disabled
-                          title="Map view coming soon"
-                          aria-disabled="true"
-                          onClick={(e) => e.preventDefault()}
-                          style={{
-                            background: "#f4f4f4",
-                            color: "#9ca3af",
-                            border: "1px solid #e5e7eb",
-                            cursor: "not-allowed",
-                          }}
-                          className="mt-1 flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold w-full"
+                          onClick={() => setPlayingVideo(null)}
+                          className="absolute top-2 right-2 bg-black/50 text-white text-xs px-2 py-1 rounded-full"
                         >
-                          📍 View on Map <span className="text-[10px] font-semibold">(Coming Soon)</span>
+                          ✕ Close Video
                         </button>
                       </div>
+                    )}
+
+                    {/* No photos message — shown per property */}
+                    {!hasPhotos && playingVideo !== prop._id && (
+                      <div
+                        style={{ background: "#fff8f5", borderBottom: "1px solid #fdd9c8" }}
+                        className="w-full h-32 flex flex-col items-center justify-center gap-1"
+                      >
+                        <span className="text-3xl">📷</span>
+                        <p style={{ color: "#a8674a" }} className="text-xs font-medium">
+                          No photos available for this property
+                        </p>
+                        {hasVideos && (
+                          <button
+                            onClick={() => setPlayingVideo(prop._id)}
+                            style={{ background: "rgba(232,114,74,0.9)" }}
+                            className="text-white text-xs font-bold px-3 py-1.5 rounded-full flex items-center gap-1 hover:opacity-90 transition mt-1"
+                          >
+                            ▶ Watch Video
+                          </button>
+                        )}
+                      </div>
+                    )}
+
+                    <div className="p-5 flex flex-col gap-2">
+                      <div className="flex gap-2 flex-wrap">
+                        <span
+                          style={{ background: "linear-gradient(135deg, #e8724a, #f59e6c)", color: "#fff" }}
+                          className="text-xs font-bold px-3 py-1 rounded-full"
+                        >
+                          {prop.propertyAvailableFor}
+                        </span>
+                        {prop.propertyType && (
+                          <span
+                            style={{ background: "#fff8f5", color: "#c2511f", border: "1px solid #fdd9c8" }}
+                            className="text-xs font-semibold px-3 py-1 rounded-full"
+                          >
+                            {prop.propertyType}
+                          </span>
+                        )}
+                        {prop.bhk && (
+                          <span
+                            style={{ background: "#fff8f5", color: "#c2511f", border: "1px solid #fdd9c8" }}
+                            className="text-xs font-semibold px-3 py-1 rounded-full"
+                          >
+                            🛏️ {prop.bhk}
+                          </span>
+                        )}
+                      </div>
+                      <p style={{ color: "#7c2d12" }} className="font-bold text-sm">
+                        {prop.agent
+                          ? `${prop.agent.firstName || ""} ${prop.agent.lastName || ""}`.trim()
+                          : "Agent"}
+                      </p>
+
+                      {/* Map — disabled for now, will be enabled once location data is wired up */}
+                      <button
+                        type="button"
+                        disabled
+                        title="Map view coming soon"
+                        aria-disabled="true"
+                        onClick={(e) => e.preventDefault()}
+                        style={{
+                          background: "#f4f4f4",
+                          color: "#9ca3af",
+                          border: "1px solid #e5e7eb",
+                          cursor: "not-allowed",
+                        }}
+                        className="mt-1 flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold w-full"
+                      >
+                        📍 View on Map <span className="text-[10px] font-semibold">(Coming Soon)</span>
+                      </button>
                     </div>
-                  );
-                })}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>

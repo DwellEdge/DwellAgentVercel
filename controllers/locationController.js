@@ -71,13 +71,15 @@ const getCustomers = async (req, res) => {
   try {
     const city = req.query.city?.trim();
     const area = req.query.area?.trim();
-    const propertytype = req.query.propertytype?.trim();
+    const propertyType =
+      req.query.propertyTypeId?.trim() ||
+      req.query.propertyType?.trim();
 
     if (!city || !area) {
       return res.json([]);
     }
 
-    const result = await getCustomersByArea(city, area, propertytype);
+    const result = await getCustomersByArea(city, area, propertyType);
 
     res.json(result);
   } catch (error) {
