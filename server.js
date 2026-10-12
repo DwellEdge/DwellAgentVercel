@@ -15,7 +15,7 @@ const propertyTypeGetRoutes = require("./routes/propertyType");
 const propertyTypeCreateRoutes = require("./routes/propertyTypeRoutes");
 const locationRoutes = require("./routes/locationRoutes");
 const transactionHistoryRoutes = require("./routes/transactionHistoryRoutes");
-const agentAuthRoutes = require("./routes/agentAuthRoutes");
+const agentAuthRoutes = require("./routes/agentauthRoutes");
 const uploadRoutes = require("./routes/uploadRoutes");
 const propertyRoutes = require("./routes/propertyRoutes");
 const propertyMediaRoutes = require("./routes/propertyMediaRoutes");
@@ -39,7 +39,8 @@ const allowedOrigins = [
   "http://localhost:5178",
   "http://localhost:5173",
   "https://dwelledge.github.io",
-  "https://dwelledge.github.io/DwellAgentTest"
+  "https://dwelledge.github.io/DwellAgentTest",
+  "https://dwell-agent-vercel.vercel.app"
 ];
 
 app.use(cors({
