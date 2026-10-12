@@ -17,6 +17,17 @@ const createAgent = async (req, res) => {
   }
 };
 
+const normalizePurpose = (value) => {
+  if (!value) return null;
+  const text = String(value).trim();
+
+  if (["Rent", "Lease", "Sale"].includes(text)) return text;
+  if (text === "P01") return "Rent";
+  if (text === "P02") return "Lease";
+  if (text === "P03") return "Sale";
+  return null;
+};
+
 const getAgents = async (req, res) => {
   try {
     const city = req.query.city?.trim();
@@ -25,21 +36,21 @@ const getAgents = async (req, res) => {
     const minBudget = req.query.minBudget ? Number(req.query.minBudget) : null;
     const maxBudget = req.query.maxBudget ? Number(req.query.maxBudget) : null;
 
-    if (!city || !area || !propertyTypeId) {
+    if (!city || !area) {
       return res.json([]);
     }
 
-    const purpose = purposeMap[propertyTypeId];
-    if (!purpose) {
-      return res.json([]);
-    }
+    const purpose = normalizePurpose(propertyTypeId) || purposeMap[propertyTypeId] || null;
 
     const filter = {
       city: { $regex: `^${city}$`, $options: "i" },
       area: { $regex: `^${area}$`, $options: "i" },
-      propertyAvailableFor: purpose,
       expiryDate: { $gt: new Date() },
     };
+
+    if (purpose) {
+      filter.propertyAvailableFor = purpose;
+    }
 
     if (minBudget !== null || maxBudget !== null) {
       filter.propertyCost = {};

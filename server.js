@@ -4,8 +4,10 @@ const express = require("express");
 const cors = require("cors");
 const path = require("path");
 const fs = require("fs");
+const mongoose = require("mongoose");
 
 const connectDB = require("./config/db");
+const PropertyDetails = require("./models/PropertyDetails");
 
 const agentRoutes = require("./routes/agentRoutes");
 const customerRoutes = require("./routes/customerRoutes");
@@ -16,6 +18,7 @@ const transactionHistoryRoutes = require("./routes/transactionHistoryRoutes");
 const agentAuthRoutes = require("./routes/agentAuthRoutes");
 const uploadRoutes = require("./routes/uploadRoutes");
 const propertyRoutes = require("./routes/propertyRoutes");
+const propertyMediaRoutes = require("./routes/propertyMediaRoutes");
 const paymentRoutes = require("./routes/paymentRoutes");
 
 const app = express();
@@ -32,7 +35,24 @@ const videosDir = path.join(uploadsDir, "videos");
 if (!fs.existsSync(imagesDir)) fs.mkdirSync(imagesDir, { recursive: true });
 if (!fs.existsSync(videosDir)) fs.mkdirSync(videosDir, { recursive: true });
 
-app.use(cors());
+const allowedOrigins = [
+  "http://localhost:5178",
+  "http://localhost:5173",
+  "https://dwelledge.github.io",
+  "https://dwelledge.github.io/DwellAgentTest"
+];
+
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+      return;
+    }
+
+    callback(new Error(`Origin not allowed by CORS: ${origin}`));
+  },
+  credentials: true,
+}));
 
 // NEW: keep the raw body for the Razorpay webhook (must be BEFORE express.json)
 app.use("/api/payments/webhook", express.raw({ type: "application/json" }));
@@ -72,6 +92,7 @@ app.use("/api/customers", customerRoutes);
 // REMOVED: app.use("/api", messageRoutes);
 app.use("/api/agent-auth", agentAuthRoutes);
 app.use("/api/upload", uploadRoutes);
+app.use("/api/property-media", propertyMediaRoutes);
 app.use("/api/properties", propertyRoutes);
 app.use("/api/payments", paymentRoutes);
 
