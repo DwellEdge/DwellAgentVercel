@@ -1,19 +1,39 @@
 const Customer = require("../models/Customer");
-const client = require("../services/twilioService");
 const { enrichAgents } = require("./enrichAgents");
 
-async function sendCustomerMessages({ phone, name, agents }) {
-  const fullAgents = await enrichAgents(agents || []);
+// Saves the customer once (by mobile number). Reuses the record if it exists.
+// transactionHistoryController looks the customer up by mobileNumber.
+async function saveCustomer({ phone, name }) {
+  const existing = await Customer.findOne({ mobileNumber: phone });
+  if (existing) return existing;
 
   const lastCustomer = await Customer.findOne().sort({ Id: -1 });
   const nextId = lastCustomer ? lastCustomer.Id + 1 : 1001;
 
-  await new Customer({
+  return new Customer({
     Id: nextId,
     name,
     mobileNumber: phone,
     createdDateAndTime: new Date(),
   }).save();
+}
+
+// Adds mobile number, address etc. to each selected agent.
+// Never throws: falls back to the agents the frontend sent.
+async function getFullAgents(agents) {
+  try {
+    return await enrichAgents(agents || []);
+  } catch (err) {
+    console.error("enrichAgents failed (using raw agents):", err.message);
+    return agents || [];
+  }
+}
+
+// OPTIONAL: SMS + WhatsApp. Only called when ENABLE_TWILIO=true.
+// Twilio is loaded here (not at the top of the file) so an inactive
+// account or missing keys can't break the server or the payment flow.
+async function sendCustomerMessages({ phone, name, fullAgents }) {
+  const client = require("../services/twilioService");
 
   const agentDetails =
     fullAgents.length > 0
@@ -36,8 +56,6 @@ async function sendCustomerMessages({ phone, name, agents }) {
     from: "whatsapp:+14155238886",
     to: `whatsapp:+91${phone}`,
   });
-
-  return fullAgents;
 }
 
-module.exports = { sendCustomerMessages };
+module.exports = { saveCustomer, getFullAgents, sendCustomerMessages };

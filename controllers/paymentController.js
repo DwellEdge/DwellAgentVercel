@@ -1,5 +1,9 @@
 const crypto = require("crypto");
-const { sendCustomerMessages } = require("./messageHelper");
+const {
+  saveCustomer,
+  getFullAgents,
+  sendCustomerMessages,
+} = require("./messageHelper");
 
 // Lazy-load Razorpay so the server doesn't crash if the dependency
 // isn't installed yet.
@@ -50,7 +54,8 @@ const createOrder = async (req, res) => {
   }
 };
 
-// Verify the payment signature, then send SMS + WhatsApp
+// Verify the payment signature, save the customer, and return the full
+// agent details so the frontend can show them. SMS/WhatsApp is optional.
 const verifyPayment = async (req, res) => {
   try {
     const {
@@ -75,7 +80,23 @@ const verifyPayment = async (req, res) => {
       return res.status(400).json({ success: false, message: "Payment verification failed" });
     }
 
-       const fullAgents = await sendCustomerMessages({ phone, name, agents });
+    // Payment is verified from here on. Nothing below may fail the response.
+    try {
+      await saveCustomer({ phone, name });
+    } catch (err) {
+      console.error("saveCustomer failed (ignored):", err.message);
+    }
+
+    const fullAgents = await getFullAgents(agents);
+
+    // Twilio is OFF unless ENABLE_TWILIO=true is set in the environment
+    if (process.env.ENABLE_TWILIO === "true") {
+      try {
+        await sendCustomerMessages({ phone, name, fullAgents });
+      } catch (err) {
+        console.error("Notification failed (ignored):", err.message);
+      }
+    }
 
     res.json({ success: true, agents: fullAgents });
   } catch (err) {

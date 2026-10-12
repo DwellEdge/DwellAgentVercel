@@ -1,28 +1,121 @@
 const PropertyDetails = require("../models/PropertyDetails");
 const Agent = require("../models/Agent");
 const client = require("../services/twilioService");
+const { getGridFSBucket, getBaseUrlFromRequest } = require("../config/gridfs");
 
 const purposeMap = { P01: "Rent", P02: "Lease", P03: "Sale" };
-const API_BASE = process.env.APP_URL || "http://localhost:5002";
 const VALID_BHK = ["1BHK", "2BHK", "3BHK", "4BHK", "5BHK"];
 
-const buildPhotoUrls = (photos) =>
-  (photos || []).map((f) => `${API_BASE}/uploads/${f}`);
+const normalizePurpose = (value) => {
+  if (!value) return null;
+  const text = String(value).trim();
 
-const buildVideoUrls = (videos) =>
-  (videos || []).map((f) => `${API_BASE}/uploads/${f}`);
+  if (["Rent", "Lease", "Sale"].includes(text)) return text;
+  if (text === "P01") return "Rent";
+  if (text === "P02") return "Lease";
+  if (text === "P03") return "Sale";
+  return null;
+};
+
+const uploadToGridFS = (file) => {
+  return new Promise((resolve, reject) => {
+    try {
+      const bucket = getGridFSBucket();
+
+      const filename = `property-${file.fieldname}-${Date.now()}-${Math.round(
+        Math.random() * 1e9,
+      )}-${file.originalname}`;
+
+      const uploadStream = bucket.openUploadStream(filename, {
+        contentType: file.mimetype,
+        metadata: {
+          fieldname: file.fieldname,
+          originalName: file.originalname,
+        },
+      });
+
+      uploadStream.on("error", reject);
+
+      uploadStream.on("finish", () => {
+        resolve({
+          id: uploadStream.id.toString(),
+          filename,
+          contentType: file.mimetype,
+        });
+      });
+
+      uploadStream.end(file.buffer);
+    } catch (error) {
+      reject(error);
+    }
+  });
+};
+
+const buildMediaUrls = (files = [], req) => {
+  const baseUrl = getBaseUrlFromRequest(req);
+
+  return (files || [])
+    .filter(Boolean)
+    .map((file) => {
+      const raw = typeof file === "string" ? file : file.path || file.filename || "";
+      if (!raw) return "";
+      if (/^https?:\/\//i.test(raw)) return raw;
+
+      const normalized = raw.replace(/\\/g, "/").replace(/^\/+/, "");
+      const isGridFsId = /^[0-9a-fA-F]{24}$/.test(normalized);
+
+      if (isGridFsId) {
+        return `${baseUrl}/api/property-media/${normalized}`;
+      }
+
+      const cleanFile = normalized.replace(/^uploads\//i, "");
+      return `${baseUrl}/uploads/${cleanFile}`;
+    })
+    .filter(Boolean);
+};
+
+const buildPhotoUrls = (photos, req) => buildMediaUrls(photos, req);
+
+const buildVideoUrls = (videos, req) => buildMediaUrls(videos, req);
 
 const addProperty = async (req, res) => {
   try {
+    console.log({
+      route: "POST /api/properties",
+      database: require("mongoose").connection.name,
+      collection: PropertyDetails.collection.name,
+    });
+
     const {
-      agentId, propertyAvailableFor, propertyCost, propertyAddress,
-      area, city, pinCode, facing, propertyType, bhk, carParking,
-      twoWheelerParking, landmark,
+      agentId,
+      propertyAvailableFor,
+      propertyCost,
+      propertyAddress,
+      area,
+      city,
+      pinCode,
+      facing,
+      propertyType,
+      bhk,
+      carParking,
+      twoWheelerParking,
+      landmark,
     } = req.body;
 
     // Photos and videos uploaded via multer
-    const photos = (req.files?.photos || []).map((f) => f.filename);
-    const videos = (req.files?.videos || []).map((f) => f.filename);
+    const photoFiles = req.files?.photos || [];
+    const videoFiles = req.files?.videos || [];
+
+    const uploadedPhotos = await Promise.all(
+      photoFiles.map((file) => uploadToGridFS(file)),
+    );
+
+    const uploadedVideos = await Promise.all(
+      videoFiles.map((file) => uploadToGridFS(file)),
+    );
+
+    const photos = uploadedPhotos.map((file) => file.id);
+    const videos = uploadedVideos.map((file) => file.id);
 
     // --- Server-side validation (client-side checks can be bypassed) ---
     if (photos.length === 0) {
@@ -48,14 +141,30 @@ const addProperty = async (req, res) => {
     }
 
     const property = await PropertyDetails.create({
-      agentId, propertyAvailableFor,
+      agentId,
+      propertyAvailableFor,
       propertyCost: Number(propertyCost),
-      propertyAddress, area, city, pinCode, facing, propertyType,
+      propertyAddress,
+      area,
+      city,
+      pinCode,
+      facing,
+      propertyType,
       bhk,
       carParking: carParking === "true" || carParking === true,
-      twoWheelerParking: twoWheelerParking === "true" || twoWheelerParking === true,
-      amenities, landmark: landmark || "",
-      photos, videos,
+      twoWheelerParking:
+        twoWheelerParking === "true" || twoWheelerParking === true,
+      amenities,
+      landmark: landmark || "",
+      photos,
+      videos,
+    });
+
+    console.log({
+      route: "POST /api/properties",
+      database: require("mongoose").connection.name,
+      collection: PropertyDetails.collection.name,
+      propertyId: property._id.toString(),
     });
 
     // Respond immediately so frontend doesn't wait
@@ -64,7 +173,10 @@ const addProperty = async (req, res) => {
     // SMS after response
     try {
       const agent = await Agent.findOne({ agentId }).lean();
-      console.log("Agent found for SMS:", agent ? agent.firstName : "NOT FOUND");
+      console.log(
+        "Agent found for SMS:",
+        agent ? agent.firstName : "NOT FOUND",
+      );
 
       if (agent && agent.mobileNumber) {
         const smsMessage =
@@ -85,7 +197,10 @@ const addProperty = async (req, res) => {
         });
         console.log(`Property SMS sent to +91${agent.mobileNumber}`);
       } else {
-        console.log("SMS skipped — agent not found or no mobile. agentId:", agentId);
+        console.log(
+          "SMS skipped — agent not found or no mobile. agentId:",
+          agentId,
+        );
       }
     } catch (smsErr) {
       console.error("Property SMS error:", smsErr.message);
@@ -106,8 +221,8 @@ const getPropertiesByAgent = async (req, res) => {
 
     const result = properties.map((p) => ({
       ...p,
-      photoUrls: buildPhotoUrls(p.photos),
-      videoUrls: buildVideoUrls(p.videos),
+      photoUrls: buildPhotoUrls(p.photos, req),
+      videoUrls: buildVideoUrls(p.videos, req),
     }));
 
     res.json(result);
@@ -118,6 +233,12 @@ const getPropertiesByAgent = async (req, res) => {
 
 const searchProperties = async (req, res) => {
   try {
+    console.log({
+      route: "GET /api/properties/search",
+      database: require("mongoose").connection.name,
+      collection: PropertyDetails.collection.name,
+    });
+
     const city = req.query.city?.trim();
     const area = req.query.area?.trim();
     const propertyTypeId = req.query.propertyTypeId?.trim();
@@ -127,8 +248,7 @@ const searchProperties = async (req, res) => {
 
     if (!city || !area) return res.json([]);
 
-    const purpose = purposeMap[propertyTypeId];
-    if (propertyTypeId && !purpose) return res.json([]);
+    const purpose = normalizePurpose(propertyTypeId) || purposeMap[propertyTypeId] || null;
 
     const filter = {
       city: { $regex: `^${city}$`, $options: "i" },
@@ -152,6 +272,13 @@ const searchProperties = async (req, res) => {
 
     const properties = await PropertyDetails.find(filter).lean();
 
+    console.log({
+      route: "GET /api/properties/search",
+      database: require("mongoose").connection.name,
+      collection: PropertyDetails.collection.name,
+      resultCount: properties.length,
+    });
+
     // Fetch agents for all properties
     const agentIds = [...new Set(properties.map((p) => p.agentId))];
     const agents = await Agent.find({ agentId: { $in: agentIds } }).lean();
@@ -162,8 +289,8 @@ const searchProperties = async (req, res) => {
       ...prop,
       agent: agentMap[prop.agentId] || null,
       // Photos and videos are per-property — each property has its own
-      photoUrls: buildPhotoUrls(prop.photos),
-      videoUrls: buildVideoUrls(prop.videos),
+      photoUrls: buildPhotoUrls(prop.photos, req),
+      videoUrls: buildVideoUrls(prop.videos, req),
       hasPhotos: (prop.photos || []).length > 0,
       hasVideos: (prop.videos || []).length > 0,
     }));

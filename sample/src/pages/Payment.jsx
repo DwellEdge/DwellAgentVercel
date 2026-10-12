@@ -17,9 +17,10 @@ export default function Payment() {
 
   const [sending, setSending] = useState(false);
   const [showSuccessPopup, setShowSuccessPopup] = useState(false);
+  const [paidAgents, setPaidAgents] = useState([]); // full agent details shown in the popup
   const [errorMsg, setErrorMsg] = useState("");
 
-  const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:5002";
+  const API_BASE = (import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE || "http://localhost:5002").replace(/\/$/, "");
 
   useEffect(() => {
     if (!location.state || agents.length === 0) {
@@ -68,14 +69,15 @@ export default function Payment() {
 
         // Runs ONLY after a successful payment
         handler: async (response) => {
+          const paymentId = response.razorpay_payment_id;
           try {
-            // 3a. Verify payment. The server sends SMS + WhatsApp only if valid
+            // 3a. Verify the payment signature on the server
             const verifyRes = await fetch(`${API_BASE}/api/payments/verify`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 razorpay_order_id: response.razorpay_order_id,
-                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_payment_id: paymentId,
                 razorpay_signature: response.razorpay_signature,
                 phone,
                 name,
@@ -87,25 +89,26 @@ export default function Payment() {
               throw new Error(verifyData.message || "Verification failed");
             }
 
-            // 3b. Save transaction (only after a verified payment)
+            // 3b. Save the transaction history record
+            const agentSelections = agents.map((agent) => ({
+              agentId: agent.agentId || agent._id,
+              propertyTypeId: agent.propertyTypeId || "",
+              propertyType: agent.propertyTypeName || "",
+            }));
+
+            const propertyTypeSummary = [
+              ...new Set(
+                agentSelections.map((s) => s.propertyType).filter(Boolean)
+              ),
+            ].join(", ");
+
+            let saved = false;
             try {
-              const agentSelections = agents.map((agent) => ({
-                agentId: agent.agentId || agent._id,
-                propertyTypeId: agent.propertyTypeId || "",
-                propertyType: agent.propertyTypeName || "",
-              }));
-
-              const propertyTypeSummary = [
-                ...new Set(
-                  agentSelections.map((s) => s.propertyType).filter(Boolean)
-                ),
-              ].join(", ");
-
-              await fetch(`${API_BASE}/api/transactions`, {
+              const txRes = await fetch(`${API_BASE}/api/transactions`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                  transactionId: response.razorpay_payment_id,
+                  transactionId: paymentId,
                   city,
                   area,
                   propertyType: propertyTypeSummary,
@@ -116,16 +119,28 @@ export default function Payment() {
                   amountReceived: totalAmount,
                 }),
               });
+              const txData = await txRes.json().catch(() => ({}));
+              saved = txRes.ok && txData.success === true;
+              if (!saved) console.error("Transaction save failed:", txData);
             } catch (err) {
               console.error("Transaction save error", err);
-              // don't block the success popup, payment and messages are done
             }
 
+            // 3c. Success popup only once the transaction is saved
+            if (!saved) {
+              throw new Error(
+                `Your payment was received (ID: ${paymentId}) but we could not record it. Please contact support with this payment ID.`
+              );
+            }
+
+            setPaidAgents(
+              verifyData.agents && verifyData.agents.length > 0
+                ? verifyData.agents
+                : agents
+            );
             setShowSuccessPopup(true);
           } catch (err) {
-            setErrorMsg(
-              "❌ Payment done but confirmation failed: " + err.message
-            );
+            setErrorMsg("❌ " + err.message);
           } finally {
             setSending(false);
           }
@@ -302,7 +317,7 @@ export default function Payment() {
 
             <h2 style={{ color: "#7c2d12" }} className="text-3xl font-extrabold mb-2">Thank You!</h2>
             <p style={{ color: "#a8674a" }} className="text-sm mb-6">
-              Payment successful! SMS and WhatsApp message sent to your mobile 💐
+              Payment successful! Your agent details are below. Please save them.
             </p>
 
             <div style={{ background: "#fdd9c8" }} className="w-full h-px mb-6" />
@@ -312,7 +327,7 @@ export default function Payment() {
             </p>
 
             <div className="flex flex-col gap-4">
-              {agents.map((agent) => (
+              {paidAgents.map((agent) => (
                 <div
                   key={agent.rowKey || agent._id}
                   style={{ background: "#fff8f5", border: "1px solid #fdd9c8" }}
@@ -321,9 +336,17 @@ export default function Payment() {
                   <div style={{ color: "#7c2d12" }} className="font-bold text-sm">
                     {agent.firstName} {agent.lastName}
                   </div>
-                  <div style={{ color: "#a8674a" }} className="text-xs mt-1">📞 {agent.mobileNumber}</div>
-                  <div style={{ color: "#a8674a" }} className="text-xs mt-1">📍 {agent.address}</div>
-                  <div style={{ color: "#a8674a" }} className="text-xs mt-1">🏘️ {agent.area}</div>
+                  {agent.mobileNumber && (
+                    <div style={{ color: "#a8674a" }} className="text-xs mt-1">📞 {agent.mobileNumber}</div>
+                  )}
+                  {(agent.propertyAddress || agent.address) && (
+                    <div style={{ color: "#a8674a" }} className="text-xs mt-1">
+                      📍 {agent.propertyAddress || agent.address}
+                    </div>
+                  )}
+                  {agent.area && (
+                    <div style={{ color: "#a8674a" }} className="text-xs mt-1">🏘️ {agent.area}</div>
+                  )}
                 </div>
               ))}
             </div>

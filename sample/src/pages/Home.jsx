@@ -38,20 +38,8 @@ export default function Home() {
   const [propertyResults, setPropertyResults] = useState([]);
   const [activePhotoIndex, setActivePhotoIndex] = useState({});
   const [playingVideo, setPlayingVideo] = useState(null);
-  const [failedPhotos, setFailedPhotos] = useState({}); // "propId::index" -> true when an image fails to load
 
-  const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:5002";
-
-  // Photos/videos saved in the database may contain "http://localhost:5002/...".
-  // Rewrite them so they point at the backend this build is configured for.
-  const fixMediaUrl = (url) => {
-    if (!url) return "";
-    if (url.startsWith("http://localhost:5002")) {
-      return url.replace("http://localhost:5002", API_BASE);
-    }
-    if (url.startsWith("/")) return `${API_BASE}${url}`;
-    return url;
-  };
+  const API_BASE = (import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE || "http://localhost:5002").replace(/\/$/, "");
 
   const makeRowKey = (agentId, ptId) => `${agentId}::${ptId}`;
 
@@ -218,7 +206,6 @@ export default function Home() {
         merged.push(prop);
       });
       setPropertyResults(merged);
-      setFailedPhotos({});
     } catch (err) {
       console.error("Failed to fetch properties:", err.message);
     } finally {
@@ -259,14 +246,18 @@ export default function Home() {
   useEffect(() => {
     axios.get(`${API_BASE}/api/property-types`)
       .then((res) => {
-        const types = res.data || [];
+        const types = Array.isArray(res.data) ? res.data : [];
         setPropertyTypes(types);
         setSelectedPropertyTypeIds((prev) =>
           prev.length > 0 ? prev : types[0] ? [types[0].propertyTypeId] : []
         );
       })
-      .catch(console.error);
-  }, []);
+      .catch((err) => {
+        console.error("Failed to load property types:", err.message);
+        setPropertyTypes([]);
+        setSelectedPropertyTypeIds([]);
+      });
+  }, [API_BASE]);
 
   useEffect(() => {
     if (selectedCity && area && searchPerformed) {
@@ -738,7 +729,6 @@ export default function Home() {
                 const currentPhotoIdx = activePhotoIndex[prop._id] || 0;
                 const hasPhotos = prop.hasPhotos && prop.photoUrls?.length > 0;
                 const hasVideos = prop.hasVideos && prop.videoUrls?.length > 0;
-                const photoFailed = !!failedPhotos[`${prop._id}::${currentPhotoIdx}`];
 
                 return (
                   <div
@@ -749,29 +739,11 @@ export default function Home() {
                     {/* Media section */}
                     {hasPhotos && playingVideo !== prop._id && (
                       <div className="relative">
-                        {photoFailed ? (
-                          <div
-                            style={{ background: "#fff8f5" }}
-                            className="w-full h-56 flex flex-col items-center justify-center gap-1"
-                          >
-                            <span className="text-3xl">📷</span>
-                            <p style={{ color: "#a8674a" }} className="text-xs font-medium">
-                              Photo could not be loaded
-                            </p>
-                          </div>
-                        ) : (
-                          <img
-                            src={fixMediaUrl(prop.photoUrls[currentPhotoIdx])}
-                            alt={`Property photo ${currentPhotoIdx + 1}`}
-                            className="w-full h-56 object-cover"
-                            onError={() =>
-                              setFailedPhotos((prev) => ({
-                                ...prev,
-                                [`${prop._id}::${currentPhotoIdx}`]: true,
-                              }))
-                            }
-                          />
-                        )}
+                        <img
+                          src={prop.photoUrls[currentPhotoIdx]}
+                          alt={`Property photo ${currentPhotoIdx + 1}`}
+                          className="w-full h-56 object-cover"
+                        />
                         {/* Photo navigation */}
                         {prop.photoUrls.length > 1 && (
                           <>
@@ -820,7 +792,7 @@ export default function Home() {
                     {hasVideos && playingVideo === prop._id && (
                       <div className="relative">
                         <video
-                          src={fixMediaUrl(prop.videoUrls[0])}
+                          src={prop.videoUrls[0]}
                           controls autoPlay
                           className="w-full h-56 object-cover bg-black"
                         />

@@ -21,7 +21,7 @@ const safeGetStoredUser = () => {
 
 const AgentLogin = () => {
   const navigate = useNavigate();
-  const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:5002";
+  const API_BASE = (import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE || "http://localhost:5002").replace(/\/$/, "");
 
   const [formData, setFormData] = useState({ username: "", password: "" });
   const [errorStatus, setErrorStatus] = useState("");

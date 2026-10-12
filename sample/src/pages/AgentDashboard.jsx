@@ -8,7 +8,7 @@ const BHK_OPTIONS = ["1BHK", "2BHK", "3BHK", "4BHK", "5BHK"];
 
 export default function AgentDashboard() {
   const navigate = useNavigate();
-  const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:5002";
+  const API_BASE = (import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE || "http://localhost:5002").replace(/\/$/, "");
 
   const [agent, setAgent] = useState(null);
   const [properties, setProperties] = useState([]);
